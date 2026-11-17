@@ -22,6 +22,7 @@ TENANT_TABLES = [
     "faq_aliases",
     "faq_entries",
     "identity_conflicts",
+    "idempotency_records",
     "inbound_message_events",
     "message_templates",
     "messaging_identity_links",

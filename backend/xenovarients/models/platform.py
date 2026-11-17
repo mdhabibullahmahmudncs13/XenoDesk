@@ -91,3 +91,38 @@ class Notification(Base, TenantScopedMixin, TimestampMixin):
     body: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSON())
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class IdempotencyRecord(Base, TenantScopedMixin, TimestampMixin):
+    """A stored response, replayed when the same key comes back.
+
+    The unique constraint on ``(business_id, key, endpoint)`` is what makes the
+    replay safe: a second request with the same key finds the first one's response
+    rather than performing the action again.
+
+    ``request_fingerprint`` catches the dangerous case — the same key sent with a
+    *different* body. That is not a retry, it is a mistake, and replaying the first
+    response would silently do the wrong thing. The fingerprint turns it into a 409.
+    """
+
+    __tablename__ = "idempotency_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "business_id",
+            "key",
+            "endpoint",
+            name="uq_idempotency_records_business_id_key_endpoint",
+        ),
+        Index("ix_idempotency_records_business_id_created_at", "business_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(255), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_body: Mapped[dict[str, Any]] = mapped_column(JSON(), nullable=False)
+    response_headers: Mapped[dict[str, Any]] = mapped_column(JSON(), nullable=False, default=dict)

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from xenovarients.api import auth, events, notifications, webhooks
 from xenovarients.api.errors import register_exception_handlers
+from xenovarients.api.idempotency import IdempotencyMiddleware
 from xenovarients.api.middleware import RequestContextMiddleware
 from xenovarients.core.config import get_settings
 from xenovarients.core.logging import configure_logging
@@ -26,6 +27,11 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json",
     )
 
+    # Starlette wraps middleware in reverse order of addition: the last added is the
+    # outermost. The idempotency middleware must run *inside* the request context
+    # middleware, because it reads the validated Idempotency-Key off the request
+    # state that the context middleware sets.
+    app.add_middleware(IdempotencyMiddleware)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
