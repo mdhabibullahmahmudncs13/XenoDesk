@@ -18,6 +18,8 @@ from xenovarients.models.outbound import (
     OutboundStatus,
     SkipReason,
 )
+from xenovarients.platform.eligibility import load_rules
+from xenovarients.platform.identity import grant_permission, revoke_permission
 from xenovarients.platform.outbound import (
     StubAdapter,
     claim_pending,
@@ -252,3 +254,119 @@ async def test_mark_skipped_records_the_reason(session, businesses, bind, custom
 
     assert message.status == OutboundStatus.skipped.value
     assert message.skip_reason == SkipReason.opted_out.value
+
+
+@pytest.mark.asyncio
+async def test_a_recipient_who_opts_out_is_skipped_at_send_time(
+    session, businesses, bind, customer_factory
+):
+    """The preview showed them as eligible; they opted out before the send fired.
+
+    This is the whole point of re-checking at send time: the send path must not
+    trust the schedule-time snapshot.
+    """
+    business_one, _ = businesses
+    await bind(business_one.id)
+    customer = await customer_factory(business_one, email_normalised="l@example.com")
+    await grant_permission(
+        session,
+        business_id=business_one.id,
+        customer_id=customer.id,
+        channel="email",
+        contact_value="l@example.com",
+        source="import",
+        purposes=["review_request"],
+    )
+    message = await _enqueue(session, business_one.id, customer.id)
+    await session.commit()
+
+    # The customer opts out after the preview, before the dispatcher runs.
+    await revoke_permission(
+        session, business_id=business_one.id, customer_id=customer.id, channel="email"
+    )
+    await session.commit()
+
+    adapter = StubAdapter("email")
+    await dispatch_one(session, message=message, adapter=adapter, rules=load_rules())
+    await session.commit()
+
+    assert message.status == OutboundStatus.skipped.value
+    assert message.skip_reason == SkipReason.channel_ineligible.value
+    assert adapter.sent == []
+
+
+@pytest.mark.asyncio
+async def test_a_consented_recipient_is_sent(session, businesses, bind, customer_factory):
+    business_one, _ = businesses
+    await bind(business_one.id)
+    customer = await customer_factory(business_one, email_normalised="m@example.com")
+    await grant_permission(
+        session,
+        business_id=business_one.id,
+        customer_id=customer.id,
+        channel="email",
+        contact_value="m@example.com",
+        source="import",
+        purposes=["review_request"],
+    )
+    message = await _enqueue(session, business_one.id, customer.id)
+    await session.commit()
+
+    adapter = StubAdapter("email")
+    await dispatch_one(session, message=message, adapter=adapter, rules=load_rules())
+    await session.commit()
+
+    assert message.status == OutboundStatus.sent.value
+    assert len(adapter.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_recipient_without_consent_is_skipped(session, businesses, bind, customer_factory):
+    business_one, _ = businesses
+    await bind(business_one.id)
+    customer = await customer_factory(business_one, email_normalised="n@example.com")
+    message = await _enqueue(session, business_one.id, customer.id)
+    await session.commit()
+
+    adapter = StubAdapter("email")
+    await dispatch_one(session, message=message, adapter=adapter, rules=load_rules())
+    await session.commit()
+
+    assert message.status == OutboundStatus.skipped.value
+    assert adapter.sent == []
+
+
+@pytest.mark.asyncio
+async def test_an_unconfigured_channel_is_skipped_not_retried(
+    session, businesses, bind, customer_factory
+):
+    """A provider with no credentials is not a delivery failure — it never fires."""
+    business_one, _ = businesses
+    await bind(business_one.id)
+    customer = await customer_factory(business_one, email_normalised="o@example.com")
+    await grant_permission(
+        session,
+        business_id=business_one.id,
+        customer_id=customer.id,
+        channel="email",
+        contact_value="o@example.com",
+        source="import",
+    )
+    message = await _enqueue(session, business_one.id, customer.id)
+    await session.commit()
+
+    class UnconfiguredAdapter:
+        channel = "email"
+
+        def send(self, *, to_address, body, reference):
+            raise AssertionError("must not send on an ineligible channel")
+
+        def eligibility(self):
+            return "email_provider_not_configured"
+
+    await dispatch_one(session, message=message, adapter=UnconfiguredAdapter())
+    await session.commit()
+
+    assert message.status == OutboundStatus.skipped.value
+    assert message.error_code == "email_provider_not_configured"
+    assert message.next_attempt_at is None

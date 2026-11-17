@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.core.config import get_settings
+from xenovarients.models.messaging import ContactPermission
 from xenovarients.models.outbound import (
     DeliveryAttempt,
     OutboundMessage,
@@ -156,8 +157,13 @@ async def dispatch_one(
     *,
     message: OutboundMessage,
     adapter: ChannelAdapter,
+    rules: dict[str, Any] | None = None,
 ) -> OutboundMessage:
     """Attempt one send, recording the attempt either way.
+
+    **Eligibility is re-checked here, at send time.** The preview showed what
+    *would* happen; this decides what *actually* happens. A recipient who opted out
+    between the preview and the send is skipped with a recorded reason, not sent to.
 
     A failure increments ``attempt_count`` and schedules the next attempt with
     exponential backoff, up to the configured maximum. Once the budget is spent the
@@ -166,6 +172,15 @@ async def dispatch_one(
     settings = get_settings()
     attempt_number = message.attempt_count + 1
     started_at = datetime.now(UTC)
+
+    decision = await _recheck_eligibility(session, message=message, adapter=adapter, rules=rules)
+    if decision is not None:
+        message.status = OutboundStatus.skipped.value
+        message.skip_reason = SkipReason.channel_ineligible.value
+        message.error_code = decision
+        message.next_attempt_at = None
+        await session.flush()
+        return message
 
     result = adapter.send(
         to_address=message.to_address,
@@ -205,12 +220,55 @@ async def dispatch_one(
     return message
 
 
+async def _recheck_eligibility(
+    session: AsyncSession,
+    *,
+    message: OutboundMessage,
+    adapter: ChannelAdapter,
+    rules: dict[str, Any] | None,
+) -> str | None:
+    """The send-time eligibility decision, or ``None`` if the message may go out.
+
+    Two layers are consulted: the adapter's own ``eligibility`` (is the provider
+    configured?) and the contact permission (has the customer said yes?). Both are
+    re-read from the database rather than trusted from the enqueue-time snapshot.
+    """
+    adapter_reason = adapter.eligibility()
+    if adapter_reason is not None:
+        return adapter_reason
+
+    if rules is None:
+        return None
+
+    from xenovarients.platform.eligibility import check as check_eligibility
+
+    permission = await session.scalar(
+        select(ContactPermission).where(
+            ContactPermission.business_id == message.business_id,
+            ContactPermission.customer_id == message.customer_id,
+            ContactPermission.channel == message.channel,
+        )
+    )
+
+    decision = check_eligibility(
+        rules,
+        channel=message.channel,
+        has_consent=permission is not None,
+        has_verified_identity=permission is not None,
+        opted_out=permission is not None and permission.opted_out_at is not None,
+        has_contact_value=bool(message.to_address),
+        channel_enabled=True,
+    )
+    return None if decision.eligible else decision.reason
+
+
 async def dispatch_batch(
     session: AsyncSession,
     *,
     business_id: uuid.UUID,
     adapter: ChannelAdapter,
     limit: int = 50,
+    rules: dict[str, Any] | None = None,
 ) -> dict[str, int]:
     """Send a batch of pending messages.
 
@@ -218,15 +276,17 @@ async def dispatch_batch(
     recorded independently.
     """
     messages = await claim_pending(session, business_id=business_id, limit=limit)
-    counts = {"sent": 0, "failed": 0, "retried": 0}
+    counts = {"sent": 0, "failed": 0, "retried": 0, "skipped": 0}
     for message in messages:
         if message.channel != adapter.channel:
             continue
-        await dispatch_one(session, message=message, adapter=adapter)
+        await dispatch_one(session, message=message, adapter=adapter, rules=rules)
         if message.status == OutboundStatus.sent.value:
             counts["sent"] += 1
         elif message.status == OutboundStatus.failed.value:
             counts["failed"] += 1
+        elif message.status == OutboundStatus.skipped.value:
+            counts["skipped"] += 1
         else:
             counts["retried"] += 1
     await session.commit()
