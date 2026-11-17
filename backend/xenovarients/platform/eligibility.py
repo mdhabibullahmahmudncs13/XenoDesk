@@ -10,6 +10,10 @@ window closed in between. The send path re-checks and skips with a recorded reas
 
 This module is pure: it takes the rules and the facts and returns a decision. It
 does not touch the database, which is what makes it testable in isolation.
+
+**The decision carries a code, not a sentence.** The code lands in
+``outbound_messages.skip_reason`` — a machine column with a fixed width — and the
+operator-facing sentence is looked up with ``reason_text`` when a human reads it.
 """
 
 import json
@@ -34,7 +38,7 @@ class EligibilityDecision:
 
 
 def _skip(rules: dict[str, Any], key: str) -> EligibilityDecision:
-    return EligibilityDecision(eligible=False, reason=_reason(rules, key))
+    return EligibilityDecision(eligible=False, reason=key)
 
 
 def load_rules(path: Path | None = None) -> dict[str, Any]:
@@ -44,7 +48,12 @@ def load_rules(path: Path | None = None) -> dict[str, Any]:
     return data
 
 
-def _reason(rules: dict[str, Any], key: str) -> str:
+def reason_text(rules: dict[str, Any], key: str) -> str:
+    """The operator-facing sentence for a skip reason code.
+
+    The decision carries the *code* — it lands in ``outbound_messages.skip_reason``,
+    a machine column — and the sentence is looked up here when a human reads it.
+    """
     reasons = rules.get("skip_reasons", {})
     return str(reasons.get(key, key))
 

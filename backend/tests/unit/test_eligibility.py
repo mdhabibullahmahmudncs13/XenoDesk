@@ -9,7 +9,12 @@ from typing import Any
 
 import pytest
 
-from xenovarients.platform.eligibility import EligibilityDecision, check, load_rules
+from xenovarients.platform.eligibility import (
+    EligibilityDecision,
+    check,
+    load_rules,
+    reason_text,
+)
 
 
 @pytest.fixture(scope="module")
@@ -37,44 +42,44 @@ def test_eligible_recipient_passes(rules: dict[str, Any]) -> None:
 def test_unknown_channel_is_not_enabled(rules: dict[str, Any]) -> None:
     decision = _check(rules, channel="telegram")
     assert decision.eligible is False
-    assert decision.reason == rules["skip_reasons"]["channel_not_enabled"]
+    assert decision.reason == "channel_not_enabled"
 
 
 def test_disabled_channel_is_reported(rules: dict[str, Any]) -> None:
     decision = _check(rules, channel_enabled=False)
     assert decision.eligible is False
-    assert decision.reason == rules["skip_reasons"]["channel_not_enabled"]
+    assert decision.reason == "channel_not_enabled"
 
 
 def test_opt_out_beats_missing_consent(rules: dict[str, Any]) -> None:
     """Opt-out is the most fundamental blocker: nothing else matters if the
     customer said no."""
     decision = _check(rules, opted_out=True, has_consent=False, has_contact_value=False)
-    assert decision.reason == rules["skip_reasons"]["opted_out"]
+    assert decision.reason == "opted_out"
 
 
 def test_missing_consent_is_reported(rules: dict[str, Any]) -> None:
     decision = _check(rules, has_consent=False)
     assert decision.eligible is False
-    assert decision.reason == rules["skip_reasons"]["no_consent"]
+    assert decision.reason == "no_consent"
 
 
 def test_messenger_requires_a_verified_identity_link(rules: dict[str, Any]) -> None:
     decision = _check(rules, channel="messenger", has_verified_identity=False)
     assert decision.eligible is False
-    assert decision.reason == rules["skip_reasons"]["no_verified_identity"]
+    assert decision.reason == "no_verified_identity"
 
 
 def test_messenger_is_not_eligible_outside_the_free_reply_window(rules: dict[str, Any]) -> None:
     decision = _check(rules, channel="messenger", within_free_reply_window=False)
     assert decision.eligible is False
-    assert decision.reason == rules["skip_reasons"]["outside_free_reply_window"]
+    assert decision.reason == "outside_free_reply_window"
 
 
 def test_whatsapp_requires_an_approved_template(rules: dict[str, Any]) -> None:
     decision = _check(rules, channel="whatsapp", requires_template=True)
     assert decision.eligible is False
-    assert decision.reason == rules["skip_reasons"]["outside_free_reply_window"]
+    assert decision.reason == "outside_free_reply_window"
 
 
 def test_whatsapp_passes_with_an_approved_template(rules: dict[str, Any]) -> None:
@@ -90,13 +95,33 @@ def test_whatsapp_passes_with_an_approved_template(rules: dict[str, Any]) -> Non
 def test_missing_contact_value_is_reported(rules: dict[str, Any]) -> None:
     decision = _check(rules, has_contact_value=False)
     assert decision.eligible is False
-    assert decision.reason == rules["skip_reasons"]["no_valid_contact_value"]
+    assert decision.reason == "no_valid_contact_value"
 
 
 def test_contact_value_is_reported_after_consent(rules: dict[str, Any]) -> None:
     """Consent is the more fundamental blocker, so it wins the report."""
     decision = _check(rules, has_consent=False, has_contact_value=False)
-    assert decision.reason == rules["skip_reasons"]["no_consent"]
+    assert decision.reason == "no_consent"
+
+
+def test_the_reason_is_a_code_that_fits_the_skip_reason_column(
+    rules: dict[str, Any],
+) -> None:
+    """The reason lands in ``outbound_messages.skip_reason``, a String(32).
+
+    The sentence in the config is 40-odd characters, so storing it there would
+    overflow the column. The code is what gets stored; the sentence is looked up
+    separately for display.
+    """
+    for key in rules["skip_reasons"]:
+        assert len(key) <= 32, f"skip reason code '{key}' does not fit the column"
+
+
+def test_the_sentence_is_available_for_display(rules: dict[str, Any]) -> None:
+    """The human-readable sentence is one lookup away from the code."""
+    decision = _check(rules, opted_out=True)
+    assert decision.reason == "opted_out"
+    assert reason_text(rules, decision.reason) == rules["skip_reasons"]["opted_out"]
 
 
 def test_every_rule_key_is_one_the_engine_reads(rules: dict[str, Any]) -> None:
@@ -126,4 +151,4 @@ def test_messenger_is_ineligible_without_a_verified_link(rules: dict[str, Any]) 
     assert rules["channels"]["messenger"]["requires_verified_identity_link"] is True
     decision = _check(rules, channel="messenger", has_verified_identity=False)
     assert decision.eligible is False
-    assert decision.reason == rules["skip_reasons"]["no_verified_identity"]
+    assert decision.reason == "no_verified_identity"
