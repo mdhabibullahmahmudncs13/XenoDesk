@@ -1,0 +1,52 @@
+{
+  "$comment": "Channel eligibility rules (OD-05). Data, not code — changing these is a config edit, not a release. Rules are evaluated at SEND time, not at schedule time: a recipient eligible when the batch was previewed may be ineligible when the batch fires. The send path re-checks and skips with a recorded reason.",
+  "version": "2026-11-17",
+  "status": "UNVERIFIED — see docs/decisions/OD-05.md. Until the provider rules are confirmed, Email and SMS are the default channels and Messenger/WhatsApp are opt-in per business.",
+  "defaults": {
+    "email": true,
+    "sms": true,
+    "messenger": false,
+    "whatsapp": false
+  },
+  "channels": {
+    "email": {
+      "requires_consent": true,
+      "requires_authenticated_domain": true,
+      "max_message_length": 1000,
+      "can_reach_unresponsive_customer": true,
+      "notes": "Deliverability depends on SPF/DKIM/DMARC. Marketing content needs an explicit opt-in separate from transactional."
+    },
+    "sms": {
+      "requires_consent": true,
+      "honours_stop_keyword": true,
+      "max_message_length": 480,
+      "can_reach_unresponsive_customer": true,
+      "notes": "STOP/STOPALL must suppress the record for that phone number on every future send, not just the current batch."
+    },
+    "messenger": {
+      "requires_consent": true,
+      "requires_verified_identity_link": true,
+      "free_reply_window_hours": 24,
+      "max_message_length": 2000,
+      "can_reach_unresponsive_customer": false,
+      "notes": "Outside the free-reply window a message needs a message tag; tag categories and their rules must be verified before enabling."
+    },
+    "whatsapp": {
+      "requires_consent": true,
+      "requires_verified_identity_link": true,
+      "requires_approved_template": true,
+      "free_reply_window_hours": 24,
+      "max_message_length": 4096,
+      "can_reach_unresponsive_customer": false,
+      "notes": "Needs an approved business-initiated template. Template approval lead time must be planned around before enabling."
+    }
+  },
+  "skip_reasons": {
+    "no_consent": "No consent record for this channel and purpose.",
+    "no_verified_identity": "No verified identity link for this channel.",
+    "outside_free_reply_window": "The provider's free-reply window has closed.",
+    "opted_out": "The customer has opted out on this channel.",
+    "no_valid_contact_value": "No usable contact value on this channel.",
+    "channel_not_enabled": "This channel is not enabled for the business."
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "$comment": "Review request defaults (OD-08). Per-business overrides live in the review_settings table; these are the seeded defaults. The send window is evaluated in the BUSINESS's timezone, not the platform's and not UTC.",
+  "delay_days": 3,
+  "send_window_start": "09:00",
+  "send_window_end": "20:00",
+  "reply_window_days": 14,
+  "max_requests_per_order": 1,
+  "consent_purpose": "review_request"
+}

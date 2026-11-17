@@ -1,0 +1,15 @@
+{
+  "$comment": "Qualifying-order rules (OD-02). Stored as data so a rule change is a data change, not a migration. Every customer_order records the rule_version that produced its qualifying flag, so a later change is auditable rather than retroactive.",
+  "version": "v1",
+  "qualifying_statuses": ["paid", "completed"],
+  "excluded_statuses": ["cancelled", "returned"],
+  "refund_policy": {
+    "fully_refunded_excludes_order": true,
+    "partially_refunded_counts_net": true
+  },
+  "definitions": {
+    "returning_customer": { "min_qualifying_orders": 1 },
+    "repeat_buyer": { "min_qualifying_orders": 2 }
+  },
+  "spend_basis": "net_of_refund"
+}
