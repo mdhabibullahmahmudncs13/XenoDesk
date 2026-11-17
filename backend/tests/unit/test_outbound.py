@@ -32,6 +32,22 @@ from xenovarients.platform.outbound import (
 pytestmark = pytest.mark.integration
 
 
+@pytest.mark.asyncio
+async def test_collaboration_purpose_is_never_enqueued():
+    with pytest.raises(ValueError, match="never send outbound"):
+        await enqueue(
+            None,
+            business_id=uuid.uuid4(),
+            purpose="collaboration",
+            ref_id=uuid.uuid4(),
+            customer_id=uuid.uuid4(),
+            channel="email",
+            to_address="creator@example.com",
+            body="Please collaborate",
+            idempotency_key="collaboration-test",
+        )
+
+
 async def _enqueue(
     session, business_id, customer_id, *, channel="email", key=None
 ) -> OutboundMessage:

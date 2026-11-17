@@ -35,7 +35,9 @@ from xenovarients.models.customer import (
     Product,
     ProductVariant,
 )
+from xenovarients.models.tenancy import Business
 from xenovarients.platform.identity import normalise_email, normalise_phone
+from xenovarients.platform.reviews import schedule_review_request
 from xenovarients.platform.source import (
     CustomerOrderSource,
     Page,
@@ -139,6 +141,9 @@ async def sync_orders(
     seen = 0
     upserted = 0
     skipped = 0
+    business = await session.get(Business, business_id)
+    if business is None:
+        raise ValueError(f"Business {business_id} does not exist.")
     for record in await _drain(_paged(source, "fetch_orders"), updated_since):
         if not isinstance(record, SourceOrder):
             continue
@@ -152,7 +157,10 @@ async def sync_orders(
             # history of whoever later claims that id.
             skipped += 1
             continue
-        await _upsert_order(session, business_id=business_id, record=record, rules=active_rules)
+        order = await _upsert_order(
+            session, business_id=business_id, record=record, rules=active_rules
+        )
+        await schedule_review_request(session, business=business, order=order)
         upserted += 1
     await session.flush()
     await recompute_figures(session, business_id=business_id, rules=active_rules)

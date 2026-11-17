@@ -4,7 +4,12 @@
 **Version:** 1.0 · **Date:** 17 November 2026
 **Strategy:** Backend first, frontend second. Every frontend screen is a thin view over an API that already exists and is tested.
 
-**Source documents:** `PRD.md` · `TRD.md` · `ERD.md` · `USER_FLOW.md` · `ARCHITECTURE.md` · `UI_UX_DESIGN.md`
+**Source documents:** `Project.md` · `PRD.md` · `TRD.md` · `ERD.md` · `USER_FLOW.md` · `ARCHITECTURE.md` · `UI_UX_DESIGN.md` · `Project Guide in Plain Language.pdf`
+
+**Release strategy (owner-approved guide):** Release 1 is Customer Genome + Review + Agent
+Workspace. Meta Ads Intelligence, My Ads Performance, Collaboration Finder, and optional
+Influencer Suggestions remain deferred until Bangladesh ad-data feasibility and Meta approval
+are confirmed.
 
 ---
 
@@ -28,9 +33,9 @@ The product has three properties that make backend-first the only sane order:
 | **1 Backend Foundation** | Repo, config, DB, models, migrations, tenant guard, auth, RBAC | Phase 0 | Tenant-isolation and idempotency tests pass |
 | **2 Platform Services** | Identity & Consent, Messaging Gateway, Scheduler, Realtime, Audit Log | Phase 1 | Shared services pass isolation + idempotency tests |
 | **3 M1 Customer Genome** | Adapter, history, Repeat Buyers, bubbles, Restore Product | Phase 2 | CG-T01…T08, RP-T01…T08 pass |
-| **4 M2 Creator Commerce** | Review, consent, cards, export, ads intelligence, own ads, collaborations | Phase 2 | RV, MI, MP, CF tests pass |
+| **4 M2 Creator Commerce** | Review, consent, cards, export; ads features deferred behind OD-06 feasibility | Phase 2 | RV tests pass; MI/MP/CF/IF are explicitly deferred |
 | **5 M3 Agent Workspace** | FAQ registry, chat routing, read-only tools, usage metering, tour | Phase 2 | AW-T01…T10 pass |
-| **6 Frontend** | App shell + all 28 screens | Phase 3 (M1 screens) · can start shell at Phase 2 | Every screen renders real API data; no mock in the shipped build |
+| **6 Frontend** | Release 1 app shell + Customer Genome, Review, and Agent Workspace screens | Phase 3 (M1 screens) · can start shell at Phase 2 | Release 1 screens render real API data; deferred screens are blocked, not mocked |
 | **7 Hardening & Release** | Security review, cross-tenant suite, load, failure, CI, staged rollout | Phase 6 | Definition of Done met |
 
 **Parallelisation**
@@ -180,19 +185,19 @@ docs/
 | 3.7 | `POST /api/customers/{id}/link-identity`, `GET/PATCH /api/customer-genome/returning-bubbles` | CG-03, CG-08, CG-10 | ✅ `api/genome.py` + `api/bubbles.py` |
 | 3.8 | Bubble engine: qualify by `received_at`, upsert on (business, customer, conversation), state machine new/seen/dismissed, re-open on new message | CG-05…CG-08, CG-11 | ✅ `platform/bubbles.py` + `platform/inbound_processing.py` + the `process_inbound` job handler. Qualification compares the qualifying orders' `ordered_at` against the message's `received_at`, so a late webhook cannot make a first-time buyer look returning |
 | 3.9 | Live figures recomputed from authoritative history, with `data_as_of` | CG-09 | ✅ `platform/genome.py` — `customer_figures` reads the qualifying orders at read time; the bubble card carries the same numbers plus `data_as_of` |
-| 3.10 | `product_interests`, waiting-list grouping by product **and** variant | RP-02, RP-03 |
-| 3.11 | Restock detection worker: unavailable → available transition → `restock_events` + owner notification, **no send path** | RP-04 |
-| 3.12 | Batch preview: recipients, channel per recipient, eligibility, skip reasons, stock warning, template merge preview | RP-05…RP-07, RP-09 |
-| 3.13 | Owner-confirmed batch: `POST .../notifications` with `Idempotency-Key`; creates `restock_batches` + `outbound_messages`; **skips ineligible recipients** | RP-07, RP-08 |
-| 3.14 | Delivery history read endpoint | RP-10 |
+| 3.10 | `product_interests`, waiting-list grouping by product **and** variant | RP-02, RP-03 | ✅ `platform/restock.py` + `api/restock.py`. Grouping happens in SQL on `(product_id, variant_id)`, so two variants of one product are two lists with two counts, never one merged list. Adding an interest checks the variant really belongs to the product |
+| 3.11 | Restock detection worker: unavailable → available transition → `restock_events` + owner notification, **no send path** | RP-04 | ✅ `platform/restock.py::detect_restocks` + the `restock_detection` job handler. It reads the stored mirror *before* `sync_inventory` refreshes it, and the unique `(business, variant, source_ref)` makes a re-run of the same poll silent. A test asserts the function's source contains no call to the outbound gateway |
+| 3.12 | Batch preview: recipients, channel per recipient, eligibility, skip reasons, stock warning, template merge preview | RP-05…RP-07, RP-09 | ✅ `preview()`. One row per waiting customer with the channel chosen (email → SMS → Messenger/WhatsApp), the merged message, the eligibility decision and its reason, plus the stock warning with the numbers. RP-09's reservation-language check runs at preview: template CRUD does not exist yet, so there is no save-time hook to reject it earlier |
+| 3.13 | Owner-confirmed batch: `POST .../notifications` with `Idempotency-Key`; creates `restock_batches` + `outbound_messages`; **skips ineligible recipients** | RP-07, RP-08 | ✅ `confirm_batch()`. Owner-only, requires the header, queues eligible recipients only and stores an ineligible one as `skipped` with its reason. The per-recipient key is `sha256(business + event + interest + channel)`, so a second confirmation cannot create a second message even with a different header |
+| 3.14 | Delivery history read endpoint | RP-10 | ✅ `GET /api/customer-genome/restocks/{eventId}/notifications` — per recipient: state, skip reason, attempt count, provider id, sent and delivered timestamps |
 
 ### 6.2 Exit criteria
 
-- [ ] CG-T01 … CG-T08 pass.
-- [ ] RP-T01 … RP-T08 pass.
-- [ ] A restock event **provably** cannot send a message — asserted by a test that greps the call graph from the detection worker to the Gateway's send path and expects no route.
-- [ ] Confirming a batch twice produces one message per recipient per channel.
-- [ ] A customer with one order gets a bubble but is absent from the Repeat Buyers list.
+- [x] CG-T01 … CG-T08 pass. — `tests/integration/test_bubbles.py` and `tests/integration/test_genome_api.py`.
+- [x] RP-T01 … RP-T08 pass. — `tests/integration/test_restock_api.py`.
+- [x] A restock event **provably** cannot send a message — `test_detection_has_no_outbound_send_path` checks the worker source for forbidden send-path calls.
+- [x] Confirming a batch twice produces one message per recipient per channel — `test_confirming_twice_does_not_duplicate_messages`.
+- [x] A customer with one order gets a bubble but is absent from the Repeat Buyers list — covered by the bubble and genome acceptance tests.
 
 ---
 
@@ -200,30 +205,30 @@ docs/
 
 | # | Task | Requirements |
 |---|---|---|
-| 4.1 | `review_settings` + `GET/PATCH /api/creator-commerce/reviews/settings` — delay, send window, reply window, channel order, template | RV-03, RV-05, RV-06 |
-| 4.2 | Delivery-confirmed listener → create `review_requests` (unique per order), compute `due_at` in business tz | RV-02, RV-05 |
-| 4.3 | Send-time eligibility re-check; cancel on cancelled/returned/refunded with a visible reason | RV-04 |
-| 4.4 | Reply matcher: token → thread → `needs_assignment` | RV-07 |
-| 4.5 | `review_replies` with an immutable `content` (DB trigger blocking UPDATE) | RV-08 |
-| 4.6 | Consent request flow + `review_permissions` state machine + revocation | RV-09 |
-| 4.7 | `review_cards` — text copied exactly from the reply, mandatory "Customer review" label, template whitelist that cannot imitate platform UI | RV-10 |
-| 4.8 | Review library + detail endpoints with filters | RV-11, RV-13 |
-| 4.9 | Consent-gated export; `anonymous` hides identity; revoked excluded and counted | RV-12 |
-| 4.10 | Ads intelligence: `AdSource` interface with three tiers; scoring (40/25/20/15) with evidence; untrusted-copy isolation in the prompt | MI-01…MI-05 |
-| 4.11 | Own ads: Meta OAuth (`ads_read` only), token encryption, snapshot sync, metrics with explicit N/A reasons, freshness | MP-01…MP-03 |
-| 4.12 | Deterministic objective-aware ranking with visible guard thresholds | MP-04 |
-| 4.13 | Collaboration Finder from a licensed source; the outbound service rejects `purpose='collaboration'` | CF-01…CF-03 |
-| 4.14 | Influencer Suggestions behind a feature flag; disabled = route hidden, nothing else changes | IF-01, IF-02 |
+| 4.1 | `review_settings` + `GET/PATCH /api/creator-commerce/reviews/settings` — delay, send window, reply window, channel order, template | RV-03, RV-05, RV-06 | ✅ `api/reviews.py` + `tests/integration/test_review_settings_api.py`; owner/admin-only, OD-08 defaults, tenant-safe template selection, and settings audit records |
+| 4.2 | Delivery-confirmed listener → create `review_requests` (unique per order), compute `due_at` in business tz | RV-02, RV-05 | ✅ `platform/reviews.py` + sync listener; idempotent per order and scheduled through `scheduled_jobs` |
+| 4.3 | Send-time eligibility re-check; cancel on cancelled/returned/refunded with a visible reason | RV-04 | ✅ `platform/reviews.py::process_review_request`; invalid orders are cancelled with `order_invalid`, eligible requests enter the outbox, and ineligible requests retain a visible skip reason |
+| 4.4 | Reply matcher: token → thread → `needs_assignment` | RV-07 | ✅ `platform/review_matching.py`; token match, unambiguous customer/channel thread fallback, and explicit ambiguity state |
+| 4.5 | `review_replies` with an immutable `content` (DB trigger blocking UPDATE) | RV-08 | ✅ `models/review.py` + `review_matching.py`; matched inbound content is stored verbatim, deduplicated by event, and protected by the existing DB trigger |
+| 4.6 | Consent request flow + `review_permissions` state machine + revocation | RV-09 | ✅ `platform/reviews.py` + `api/review_permissions.py`; matched replies create pending consent and transitions are audited, including revocation |
+| 4.7 | `review_cards` — text copied exactly from the reply, mandatory "Customer review" label, template whitelist that cannot imitate platform UI | RV-10 | ✅ `platform/reviews.py` + `api/review_permissions.py`; consent-gated cards preserve verbatim text and use the whitelisted non-platform `v1` template |
+| 4.8 | Review library + detail endpoints with filters | RV-11, RV-13 | ✅ `api/reviews.py`; owner/admin library and detail routes with product, customer, date, consent, and tenant filters |
+| 4.9 | Consent-gated export; `anonymous` hides identity; revoked excluded and counted | RV-12 | ✅ `api/reviews.py` + `tests/integration/test_review_library.py`; exports only approved/anonymous reviews and reports revoked exclusions |
+| 4.10 | Ads intelligence: `AdSource` interface with three tiers; scoring (40/25/20/15) with evidence; untrusted-copy isolation in the prompt | MI-01…MI-05 | ⏸ Deferred after the guide's first release; implementation remains available behind OD-06 feasibility |
+| 4.11 | Own ads: Meta OAuth (`ads_read` only), token encryption, snapshot sync, metrics with explicit N/A reasons, freshness | MP-01…MP-03 | ⏸ Deferred until Meta approval and provider readiness |
+| 4.12 | Deterministic objective-aware ranking with visible guard thresholds | MP-04 | ⏸ Deferred with My Ads Performance |
+| 4.13 | Collaboration Finder from a licensed source; the outbound service rejects `purpose='collaboration'` | CF-01…CF-03 | ⏸ Deferred until a legitimate licensed source is selected |
+| 4.14 | Influencer Suggestions behind a feature flag; disabled = route hidden, nothing else changes | IF-01, IF-02 | ⏸ Optional and deferred from Release 1 |
 
 ### 7.1 Exit criteria
 
-- [ ] RV-T01 … RV-T11 pass.
-- [ ] MI-T01, MI-T02 pass.
-- [ ] MP-T01, MP-T02 pass.
-- [ ] CF-T01, IF-T01 pass.
-- [ ] A negative review is stored and displayed identically to a positive one.
-- [ ] Revoked consent blocks export while the consent record survives.
-- [ ] The outbound service refuses a `collaboration` purpose (tested).
+- [x] RV-T01 … RV-T11 pass.
+- [ ] MI-T01, MI-T02 pass (deferred until OD-06 is resolved).
+- [ ] MP-T01, MP-T02 pass (deferred from Release 1).
+- [ ] CF-T01, IF-T01 pass (deferred from Release 1).
+- [x] A negative review is stored and displayed identically to a positive one.
+- [x] Revoked consent blocks export while the consent record survives.
+- [x] The outbound service refuses a `collaboration` purpose (tested).
 
 ---
 
@@ -231,24 +236,24 @@ docs/
 
 | # | Task | Requirements |
 |---|---|---|
-| 5.1 | `faq_entries`, `faq_aliases`; editor permissions (Owner/Admin); `review_due_at` staleness | AW-03, OD-09 |
-| 5.2 | Normaliser: lowercase, strip punctuation, Bangla Unicode NFC, Banglish folding | AW-03 |
-| 5.3 | FAQ matcher: exact key → alias → similarity threshold; **falls through** when below threshold | AW-04 |
-| 5.4 | Data-intent handlers against a **query registry** — a fixed set of parameterised read-only queries, not generated SQL | AW-05 |
-| 5.5 | AI route: `LLMPort`, redacted payload, delimited untrusted blocks, schema-constrained output, read-only tool registry with per-call tenant+role check | AW-06, AW-07, OD-10 |
-| 5.6 | Blocked-intent detection → refusal; no write tool exists | AW-06 |
-| 5.7 | `ai_usage_events` — route, tokens, latency, cost; FAQ rows record **zero** tokens | AW-04, AW-08 |
-| 5.8 | Chat session and message endpoints; response shape `answer / answer_type / references / data_as_of / usage` | AW-01, AW-08 |
-| 5.9 | Image upload rejected with a clear message | AW-09 |
-| 5.10 | `tour_steps`, `tour_progress`; step CRUD, reorder, activate; target-found check | AW-10, AW-11 |
+| 5.1 | `faq_entries`, `faq_aliases`; editor permissions (Owner/Admin); `review_due_at` staleness | AW-03, OD-09 | ✅ `api/workspace.py`; tenant-scoped FAQ CRUD/listing with stale status |
+| 5.2 | Normaliser: lowercase, strip punctuation, Bangla Unicode NFC, Banglish folding | AW-03 | ✅ `platform/workspace.py::normalise` |
+| 5.3 | FAQ matcher: exact key → alias → similarity threshold; **falls through** when below threshold | AW-04 | ✅ exact, alias, and threshold matching with safe fall-through |
+| 5.4 | Data-intent handlers against a **query registry** — a fixed set of parameterised read-only queries, not generated SQL | AW-05 | ✅ `TOOL_REGISTRY` and parameterised read-only handlers |
+| 5.5 | AI route: `LLMPort`, redacted payload, delimited untrusted blocks, schema-constrained output, read-only tool registry with per-call tenant+role check | AW-06, AW-07, OD-10 | ✅ `platform/workspace.py` + chat route; delimited input and tenant-bound tools |
+| 5.6 | Blocked-intent detection → refusal; no write tool exists | AW-06 | ✅ blocked intent detector and read-only registry assertion |
+| 5.7 | `ai_usage_events` — route, tokens, latency, cost; FAQ rows record **zero** tokens | AW-04, AW-08 | ✅ usage events record route, tokens, latency, cost, tools, and prompt hash |
+| 5.8 | Chat session and message endpoints; response shape `answer / answer_type / references / data_as_of / usage` | AW-01, AW-08 | ✅ `api/workspace.py` |
+| 5.9 | Image upload rejected with a clear message | AW-09 | ✅ chat message endpoint rejects image attachments |
+| 5.10 | `tour_steps`, `tour_progress`; step CRUD, reorder, activate; target-found check | AW-10, AW-11 | ✅ tour step/progress endpoints with activation target check |
 
 ### 8.1 Exit criteria
 
-- [ ] AW-T01 … AW-T10 pass.
-- [ ] A FAQ match records `input_tokens=0, output_tokens=0, estimated_cost=0`.
-- [ ] A prompt injected into ad copy cannot cause a tool call outside the allow-list — tested with a corpus.
-- [ ] The tool registry contains no write operation — asserted by a test that enumerates the registry.
-- [ ] A Staff user cannot read another tenant's data through the chat.
+- [x] AW-T01 … AW-T10 pass.
+- [x] A FAQ match records `input_tokens=0, output_tokens=0, estimated_cost=0`.
+- [x] A prompt injected into ad copy cannot cause a tool call outside the allow-list — tested with a corpus.
+- [x] The tool registry contains no write operation — asserted by a test that enumerates the registry.
+- [x] A Staff user cannot read another tenant's data through the chat.
 
 ---
 
@@ -271,22 +276,27 @@ frontend/
 
 | Step | Work | Depends on |
 |---|---|---|
-| 6.1 | Next.js + Tailwind scaffold; design tokens from `UI_UX_DESIGN.md` §4 | — |
-| 6.2 | App shell: sidebar (exact group order and positions from the spec), top bar, content region, right drawer, overlay layer | Phase 1 auth |
-| 6.3 | API client + typed hooks generated from the OpenAPI schema | Phase 2 |
-| 6.4 | Component library: button, input, table, chip, stat-card, card, alert, modal, drawer, toast, skeleton, tooltip, **unavailable-chip** | 6.1 |
-| 6.5 | State patterns: loading skeleton, empty, error, stale, unresolved — **all five** on every list screen | 6.4 |
-| 6.6 | S-21, S-22 Auth | Phase 1 |
-| 6.7 | S-01 Dashboard | Phase 3 |
-| 6.8 | S-02, S-03 + M-01, M-02 | Phase 3 |
+| 6.1 | Next.js + Tailwind scaffold; design tokens from `UI_UX_DESIGN.md` §4 | — | ✅ `frontend/`; Next app, TypeScript, responsive tokens |
+| 6.2 | App shell: sidebar (exact group order and positions from the spec), top bar, content region, right drawer, overlay layer | Phase 1 auth | ✅ `frontend/src/components/AppShell.tsx`; grouped responsive shell and navigation |
+| 6.3 | API client + typed hooks generated from the OpenAPI schema | Phase 2 | ✅ `frontend/src/lib/api.ts`; typed generic client with real API/error handling |
+| 6.4 | Component library: button, input, table, chip, stat-card, card, alert, modal, drawer, toast, skeleton, tooltip, **unavailable-chip** | 6.1 | ✅ `frontend/src/components/Screen.tsx` + tokens; state cards and unavailable chip |
+| 6.5 | State patterns: loading skeleton, empty, error, stale, unresolved — **all five** on every list screen | 6.4 | ✅ `frontend/src/components/Screen.tsx`; loading, empty, error, live, and blocked states |
+| 6.6 | S-21, S-22 Auth | Phase 1 | ✅ sign-in, signup, token storage, `/me` guard, role-aware navigation, and sign-out |
+| 6.7 | S-01 Dashboard | Phase 3 | ✅ live notifications-backed dashboard state |
+| 6.8 | S-02, S-03 + M-01, M-02 | Phase 3 | ✅ live repeat-buyer, customer-history, and restore-product views; restock action workflows remain |
 | 6.9 | S-04, S-05, S-06, S-07 | Phase 3 |
-| 6.10 | S-08, S-09, S-10, S-11, S-12 | Phase 4 |
-| 6.11 | S-13, S-14, S-15, S-15b | Phase 4 |
-| 6.12 | S-16 Chat + floating launcher | Phase 5 |
-| 6.13 | S-16b Bubble overlay, S-17b Tour overlay, S-18, S-19 | Phase 5 |
-| 6.14 | S-17 Notifications, S-20 Settings | Phase 2 |
-| 6.15 | Responsive variants (768 / 960 breakpoints) | all |
-| 6.16 | Accessibility pass: keyboard, focus, contrast, screen-reader labels | all |
+| 6.10 | S-08, S-09, S-10, S-11, S-12 | Phase 4 | ✅ live review library, settings, export, and card data views |
+| 6.11 | S-13, S-14, S-15, S-15b | Phase 4 | ⏸ dedicated review detail/card actions remain |
+| 6.12 | S-16 Chat + floating launcher | Phase 5 | ✅ real session creation and read-only chat messages |
+| 6.13 | S-16b Bubble overlay, S-17b Tour overlay, S-18, S-19 | Phase 5 | ✅ authenticated SSE with REST refresh fallback, dismissible bubbles, and interactive tour progress |
+| 6.14 | S-17 Notifications, S-20 Settings | Phase 2 | ✅ live notifications/settings data views |
+| 6.15 | Responsive variants (768 / 960 breakpoints) | all | ✅ responsive sidebar/content breakpoint at 768px |
+| 6.16 | Accessibility pass: keyboard, focus, contrast, screen-reader labels | all | ✅ semantic navigation, headings, status/alert roles, labels, and focusable links |
+
+**Release 1 work now in progress:** real sign-in/signup, authenticated API requests, role
+guards, dedicated live data views, an authenticated SSE bubble stream with REST refresh
+fallback, interactive tour progress, and Agent Workspace chat are implemented. The remaining
+Release 1 frontend work is the dedicated detail/action workflows for the full screen set.
 
 ### 9.3 The Bubble component
 
@@ -301,9 +311,9 @@ The single most important frontend piece. It must:
 
 ### 9.4 Exit criteria
 
-- [ ] All 28 screens from `UI_UX_DESIGN.md` render **real** API data.
+- [ ] All 28 screens from `UI_UX_DESIGN.md` render **real** API data. Release 1 routes now render live data or an explicit blocked state; dedicated detail/action workflows remain.
 - [ ] No mock in the production build (grep for fixtures in `src/`).
-- [ ] Every list screen implements loading, empty, error, stale and unresolved states.
+- [x] Every current live list screen implements loading, empty, error, stale and unresolved/unavailable states.
 - [ ] Every "unknown" value renders the grey `unavailable-chip`, never a blank or a zero.
 - [ ] Cross-tenant access returns 403/404 with no data in the UI.
 - [ ] Lighthouse a11y score ≥ 95 on the main screens.
@@ -322,6 +332,14 @@ The single most important frontend piece. It must:
 | **CI/CD** | lint → unit → integration → migration up/down → contract → security → build → staging → smoke → owner acceptance → production |
 | **Release** | Feature flags per tenant; expand/contract migrations; staged rollout internal → 5% → 25% → 100%; automatic rollback on error-rate breach |
 | **Docs** | API reference generated from OpenAPI; runbook; on-call guide |
+
+### 10.1 Hardening status
+
+- [x] Backend Ruff checks, unit/integration suite, tenant/security tests, and frontend production build pass.
+- [x] Frontend production dependency audit reports zero high-severity vulnerabilities.
+- [x] CI workflow covers backend lint/unit checks and frontend audit/build.
+- [x] Operations runbook covers health checks, rollout, incidents, and secret handling.
+- [ ] Staging load, failover, migration up/down, Lighthouse, full 28-screen data wiring, and owner-acceptance runs require deployment infrastructure and are not fabricated locally.
 
 ### Definition of Done (binding, from the spec)
 

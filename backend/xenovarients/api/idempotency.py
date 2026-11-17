@@ -18,10 +18,11 @@ request's action for the second request's intent.
 
 import logging
 from collections.abc import Awaitable, Callable
+from typing import cast
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
 from xenovarients.api.errors import ErrorCode, problem_response
 from xenovarients.core.security import decode_access_token
@@ -101,13 +102,14 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                     return self._replay(request, stored)
 
                 response = await call_next(request)
+                response, raw = await self._buffered(response)
 
                 if self._is_storable(response):
                     await store_response(
                         session,
                         record=record,
                         status_code=response.status_code,
-                        body=parse_body(self._body(response)),
+                        body=parse_body(raw),
                         headers={
                             "content-type": response.headers.get("content-type", ""),
                         },
@@ -143,16 +145,24 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         )
 
     @staticmethod
-    def _body(response: Response) -> bytes:
-        """The response body, if it has one.
+    async def _buffered(response: Response) -> tuple[Response, bytes]:
+        """Read the response body, and hand back a response that still carries it.
 
-        A plain ``Response`` carries ``body``; a ``StreamingResponse`` — which is
-        what a 204 becomes — does not, and has no body to store.
+        ``call_next`` returns a streaming response, so the body exists only in its
+        ``body_iterator``. Reading ``.body`` — which only a plain ``Response`` has —
+        returns nothing here, and the stored record would then replay an empty object
+        instead of the result the client is retrying.
         """
-        raw = getattr(response, "body", None)
-        if raw is None:
-            return b""
-        return bytes(raw)
+        stream = cast(StreamingResponse, response)
+        chunks = [
+            chunk.encode() if isinstance(chunk, str) else bytes(chunk)
+            async for chunk in stream.body_iterator
+        ]
+        raw = b"".join(chunks)
+        headers = {
+            key: value for key, value in response.headers.items() if key.lower() != "content-length"
+        }
+        return Response(content=raw, status_code=response.status_code, headers=headers), raw
 
     @staticmethod
     def _is_storable(response: Response) -> bool:

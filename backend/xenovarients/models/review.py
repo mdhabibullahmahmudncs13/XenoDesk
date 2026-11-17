@@ -93,6 +93,10 @@ class ReviewReply(Base, TenantScopedMixin, TimestampMixin):
 
     __tablename__ = "review_replies"
     __table_args__ = (
+        UniqueConstraint(
+            "inbound_message_id",
+            name="uq_review_replies_inbound_message_id",
+        ),
         Index(
             "ix_review_replies_business_id_customer_id_received_at",
             "business_id",

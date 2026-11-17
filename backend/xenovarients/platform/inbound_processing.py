@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.models.messaging import InboundMessageEvent
 from xenovarients.platform.bubbles import BubbleOutcome, process_inbound_event
+from xenovarients.platform.review_matching import match_review_reply
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,7 @@ async def process_pending_events(
         outcome = await process_inbound_event(
             session, business_id=business_id, event=event, redis=redis
         )
+        await match_review_reply(session, business_id=business_id, event=event)
         event.processed_at = datetime.now(UTC)
         processed += 1
         if outcome.bubble is not None:
@@ -82,6 +84,7 @@ async def process_one_event(
     outcome = await process_inbound_event(
         session, business_id=business_id, event=event, redis=redis
     )
+    await match_review_reply(session, business_id=business_id, event=event)
     event.processed_at = datetime.now(UTC)
     await session.flush()
     return outcome

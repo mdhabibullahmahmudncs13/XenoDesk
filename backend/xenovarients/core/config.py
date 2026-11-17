@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     email_from_domain: str | None = None
     llm_api_key: str | None = None
     llm_model: str = "claude-sonnet-4-5"
+    influencer_suggestions_enabled: bool = False
 
     # --- Webhook signature verification ---
     webhook_timestamp_tolerance_seconds: int = 300

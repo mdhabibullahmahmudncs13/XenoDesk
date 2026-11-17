@@ -3,13 +3,14 @@
 Each handler does one job type's work. Handlers are registered here so a new job
 type is one function — the registry in ``runner.py`` finds it by name.
 
-``retry_delivery`` drives the outbound dispatcher; ``source_sync`` drives the M1
-sync job. The others (``review_request``, ``restock_batch_dispatch``) belong to the
-M2 features and are registered when those features land.
+``retry_delivery`` drives the outbound dispatcher; ``source_sync`` and
+``restock_detection`` drives the M1 jobs; ``review_request`` handles due review
+requests.
 """
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,8 @@ from xenovarients.jobs.runner import register
 from xenovarients.platform.channels import build_adapters
 from xenovarients.platform.inbound_processing import process_pending_events
 from xenovarients.platform.outbound import dispatch_batch
+from xenovarients.platform.restock import detect_restocks
+from xenovarients.platform.reviews import process_review_request
 from xenovarients.platform.source import StubSource
 from xenovarients.platform.sync import sync_customers, sync_inventory, sync_orders
 
@@ -57,6 +60,19 @@ def _redis() -> Any:
         return None
 
 
+@register("review_request")
+async def review_request(session: AsyncSession, payload: dict[str, Any]) -> None:
+    request_id = payload.get("review_request_id")
+    business_id = payload.get("business_id")
+    if request_id is None or business_id is None:
+        raise ValueError("review_request needs business_id and review_request_id.")
+    await process_review_request(
+        session,
+        business_id=UUID(business_id),
+        request_id=UUID(request_id),
+    )
+
+
 @register("source_sync")
 async def source_sync(session: AsyncSession, payload: dict[str, Any]) -> None:
     """Pull the source's data into the mirror (CG-04).
@@ -90,6 +106,26 @@ def _as_datetime(value: Any) -> datetime | None:
     if isinstance(value, str):
         return datetime.fromisoformat(value)
     raise ValueError(f"updated_since must be a timestamp, got {type(value).__name__}.")
+
+
+@register("restock_detection")
+async def restock_detection(session: AsyncSession, payload: dict[str, Any]) -> None:
+    """Poll the inventory source for a restock and refresh the mirror (RP-04).
+
+    Detection runs *first*, against the state the platform last saw: ``sync_inventory``
+    overwrites that state, and after it runs the unavailable → available transition is
+    no longer visible.
+
+    The job writes ``restock_events`` and an owner notification only. It has no route
+    to the outbound gateway; a batch goes out when an owner confirms one.
+    """
+    business_id = payload.get("business_id")
+    if business_id is None:
+        raise ValueError("restock_detection needs a business_id in its payload.")
+
+    source = StubSource()
+    await detect_restocks(session, business_id=business_id, source=source)
+    await sync_inventory(session, business_id=business_id, source=source)
 
 
 @register("process_inbound")

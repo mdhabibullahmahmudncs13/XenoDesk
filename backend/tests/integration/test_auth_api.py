@@ -29,6 +29,45 @@ async def test_login_returns_token(client: AsyncClient, users_and_memberships):
 
 
 @pytest.mark.asyncio
+async def test_signup_creates_owner_and_returns_token(client: AsyncClient):
+    response = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "business_name": "New Business",
+            "name": "New Owner",
+            "email": "new-owner@example.com",
+            "password": "correct-horse-battery",
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["role"] == "owner"
+    assert body["access_token"]
+
+    me = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {body['access_token']}"},
+    )
+    assert me.status_code == 200
+    assert me.json()["business"]["name"] == "New Business"
+
+
+@pytest.mark.asyncio
+async def test_signup_rejects_duplicate_email(client: AsyncClient, users_and_memberships):
+    response = await client.post(
+        "/api/v1/auth/signup",
+        json={
+            "business_name": "Another Business",
+            "name": "Owner",
+            "email": "owner@example.com",
+            "password": "correct-horse-battery",
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "conflict"
+
+
+@pytest.mark.asyncio
 async def test_login_rejects_wrong_password(client: AsyncClient, users_and_memberships):
     response = await client.post(
         "/api/v1/auth/login",

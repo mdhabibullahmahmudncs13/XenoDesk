@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 import jwt
 from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.api.deps import (
@@ -19,9 +20,14 @@ from xenovarients.api.deps import (
     get_principal,
     get_tenant_session,
 )
-from xenovarients.api.errors import Unauthorized
+from xenovarients.api.errors import Conflict, Unauthorized
 from xenovarients.core.config import get_settings
-from xenovarients.core.security import create_access_token, decode_access_token, verify_password
+from xenovarients.core.security import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    verify_password,
+)
 from xenovarients.db.session import SessionLocal
 from xenovarients.db.tenant import install_tenant_filter, reset_tenant
 from xenovarients.models.tenancy import Business, BusinessMembership, RevokedToken, User
@@ -30,6 +36,7 @@ from xenovarients.schemas.auth import (
     LoginRequest,
     MembershipResponse,
     MeResponse,
+    SignupRequest,
     TokenResponse,
 )
 
@@ -99,6 +106,54 @@ async def login(payload: LoginRequest, response: Response) -> TokenResponse:
         user_id=user.id,
         business_id=business.id,
         role=membership.role,
+    )
+
+
+@router.post("/signup", response_model=TokenResponse, status_code=201)
+async def signup(payload: SignupRequest, response: Response) -> TokenResponse:
+    """Create the first owner and business in one transaction."""
+    settings = get_settings()
+    async with SessionLocal() as session:
+        install_tenant_filter(session)
+        try:
+            email = payload.email.lower()
+            existing = await session.scalar(select(User).where(User.email == email))
+            if existing is not None:
+                raise Conflict("An account already exists for this email.")
+
+            business = Business(name=payload.business_name.strip())
+            user = User(
+                email=email,
+                name=payload.name.strip(),
+                password_hash=hash_password(payload.password),
+            )
+            session.add_all([business, user])
+            await session.flush()
+            session.add(
+                BusinessMembership(
+                    business_id=business.id,
+                    user_id=user.id,
+                    role="owner",
+                )
+            )
+            await session.commit()
+        except IntegrityError as exc:
+            await session.rollback()
+            raise Conflict("An account already exists for this email.") from exc
+        finally:
+            reset_tenant()
+
+    response.headers["Cache-Control"] = "no-store"
+    return TokenResponse(
+        access_token=create_access_token(
+            user_id=user.id,
+            business_id=business.id,
+            role="owner",
+        ),
+        expires_in=settings.access_token_ttl_minutes * 60,
+        user_id=user.id,
+        business_id=business.id,
+        role="owner",
     )
 
 

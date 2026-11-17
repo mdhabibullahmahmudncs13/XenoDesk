@@ -98,6 +98,8 @@ async def enqueue(
     The caller commits. That is the whole point of the outbox: the message and the
     business action that caused it share one transaction.
     """
+    if purpose == "collaboration":
+        raise ValueError("Collaboration suggestions never send outbound messages.")
     message = OutboundMessage(
         business_id=business_id,
         purpose=purpose,
@@ -274,7 +276,14 @@ async def _recheck_eligibility(
     decision = check_eligibility(
         rules,
         channel=message.channel,
-        has_consent=permission is not None,
+        has_consent=(
+            permission is not None
+            and permission.eligible
+            and (
+                not permission.purposes
+                or message.purpose in permission.purposes
+            )
+        ),
         has_verified_identity=permission is not None,
         opted_out=permission is not None and permission.opted_out_at is not None,
         has_contact_value=bool(message.to_address),

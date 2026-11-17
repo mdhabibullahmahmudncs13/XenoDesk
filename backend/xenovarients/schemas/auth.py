@@ -12,6 +12,15 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=8, max_length=256)
 
 
+class SignupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    business_name: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=256)
+
+
 class BusinessSummary(BaseModel):
     id: uuid.UUID
     name: str
