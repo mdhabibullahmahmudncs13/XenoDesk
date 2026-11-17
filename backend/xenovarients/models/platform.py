@@ -26,6 +26,7 @@ class JobType(str, enum.Enum):
     restock_batch_dispatch = "restock_batch_dispatch"
     inventory_poll = "inventory_poll"
     retry_delivery = "retry_delivery"
+    source_sync = "source_sync"
 
 
 class JobState(str, enum.Enum):

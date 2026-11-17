@@ -171,8 +171,8 @@ docs/
 
 | # | Task | Requirements |
 |---|---|---|
-| 3.1 | Source adapter interface + a stub adapter with seeded fixtures | CG-04 |
-| 3.2 | Sync job: full backfill + incremental `updated_since`; phone → E.164, email → lowercase normalisation; source status → `qualifying` mapping with a rule version | CG-04, OD-02 |
+| 3.1 | Source adapter interface + a stub adapter with seeded fixtures | CG-04 | ✅ `platform/source.py` — the `CustomerOrderSource` protocol, the normalised source dataclasses and `StubSource` with seeded fixtures. The stub is the seam: a real adapter is a one-class change once OD-01 is answered |
+| 3.2 | Sync job: full backfill + incremental `updated_since`; phone → E.164, email → lowercase normalisation; source status → `qualifying` mapping with a rule version | CG-04, OD-02 | ✅ `platform/sync.py` + the `source_sync` job handler. `configs/qualifying_order_rules.json` is the rule set; every order records the `qualifying_rule_version` that decided it. Figures are recomputed from the stored qualifying orders, never accumulated |
 | 3.3 | `customers`, `customer_orders`, `order_items`, `products`, `product_variants` models + derived `total_orders`, `total_spend`, `last_purchase_at`, `is_repeat_buyer` | CG-01, CG-02 |
 | 3.4 | `GET /api/customer-genome/repeat-buyers` — cursor-paginated, filters | CG-01 |
 | 3.5 | `GET /api/customers/{id}/history` — timeline, date + product filters | CG-02 |
