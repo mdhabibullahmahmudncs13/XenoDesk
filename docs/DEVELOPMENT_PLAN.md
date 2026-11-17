@@ -146,22 +146,22 @@ docs/
 
 | # | Service | Key deliverables | Done when |
 |---|---|---|---|
-| 2.1 | **Identity & Consent** | `messaging_identity_links`, `contact_permissions`, `review_permissions`, `identity_conflicts`; `resolve(channel, channel_user_id)` returning confident-match / no-match / conflict; `link()`, `unlink()`, `check_permission()` | A Messenger identity with no link resolves to *no confident match* and raises no exception; a conflict is recorded, never merged |
-| 2.2 | **Messaging Gateway — inbound** | `POST /webhooks/messaging/{channel}`; per-provider HMAC-SHA256 signature verification (constant-time compare + timestamp window); `inbound_message_events` insert with the unique `provider_event_id`; fast ACK then async processing | A replayed webhook returns `duplicate: true` and produces no second row |
-| 2.3 | **Messaging Gateway — outbound** | `outbound_messages` + `delivery_attempts`; the **outbox** pattern (business transaction writes `pending` rows; a separate dispatcher sends); `ChannelAdapter` protocol with `send()` and `eligibility()`; four adapters (Email, SMS, Messenger, WhatsApp) with the eligibility rules from OD-05; bounded retries (max 3, exponential backoff); per-channel rate limits | One failed recipient does not affect the others; a retried send does not duplicate |
-| 2.4 | **Scheduler & Queue** | Redis-backed queue; `scheduled_jobs` with a unique `idempotency_key`; delayed-job dispatch at `run_at`; job retry with backoff; a worker entry point | The same logical job scheduled twice exists once |
-| 2.5 | **Realtime** | Redis pub/sub → SSE endpoint per business; events `bubble.created`, `bubble.updated`, `bubble.removed`; client reconnect supported | A publish reaches a connected SSE client within the 5 s p95 budget |
-| 2.6 | **Audit Log** | Immutable `audit_log` (DB trigger blocking UPDATE/DELETE); `Audit.record()`; used by batch approval, export, consent change, identity link, role change | An UPDATE on `audit_log` raises |
-| 2.7 | **Notification service** | In-app `notifications` table + a bell badge count. No browser push (CG-11) | A restock event creates an owner notification and no outbound message |
-| 2.8 | **Idempotency middleware** | `Idempotency-Key` → stored result, replayed on repeat | The REST API surface replays a stored response, not a fresh one |
+| 2.1 | **Identity & Consent** | `messaging_identity_links`, `contact_permissions`, `review_permissions`, `identity_conflicts`; `resolve(channel, channel_user_id)` returning confident-match / no-match / conflict; `link()`, `unlink()`, `check_permission()` | ✅ A Messenger identity with no link resolves to *no confident match* and raises no exception; a conflict is recorded, never merged |
+| 2.2 | **Messaging Gateway — inbound** | `POST /webhooks/messaging/{channel}`; per-provider HMAC-SHA256 signature verification (constant-time compare + timestamp window); `inbound_message_events` insert with the unique `provider_event_id`; fast ACK then async processing | ✅ A replayed webhook returns `duplicate: true` and produces no second row |
+| 2.3 | **Messaging Gateway — outbound** | `outbound_messages` + `delivery_attempts`; the **outbox** pattern (business transaction writes `pending` rows; a separate dispatcher sends); `ChannelAdapter` protocol with `send()` and `eligibility()`; four adapters (Email, SMS, Messenger, WhatsApp) with the eligibility rules from OD-05; bounded retries (max 3, exponential backoff); per-channel rate limits | ✅ One failed recipient does not affect the others; a retried send does not duplicate |
+| 2.4 | **Scheduler & Queue** | Redis-backed queue; `scheduled_jobs` with a unique `idempotency_key`; delayed-job dispatch at `run_at`; job retry with backoff; a worker entry point | ✅ The same logical job scheduled twice exists once |
+| 2.5 | **Realtime** | Redis pub/sub → SSE endpoint per business; events `bubble.created`, `bubble.updated`, `bubble.removed`; client reconnect supported | ✅ A publish reaches a connected SSE client within the 5 s p95 budget |
+| 2.6 | **Audit Log** | Immutable `audit_log` (DB trigger blocking UPDATE/DELETE); `Audit.record()`; used by batch approval, export, consent change, identity link, role change | ✅ An UPDATE on `audit_log` raises |
+| 2.7 | **Notification service** | In-app `notifications` table + a bell badge count. No browser push (CG-11) | ✅ A restock event creates an owner notification and no outbound message |
+| 2.8 | **Idempotency middleware** | `Idempotency-Key` → stored result, replayed on repeat | ✅ The REST API surface replays a stored response, not a fresh one |
 
 ### 5.2 Exit criteria
 
-- [ ] Every shared service has an isolation test (no cross-tenant read).
-- [ ] Every shared service has an idempotency test.
-- [ ] A full inbound→outbound round trip works end to end with a stub adapter.
-- [ ] Retry budget is enforced and visible in `delivery_attempts`.
-- [ ] `audit_log` rejects mutation.
+- [x] Every shared service has an isolation test (no cross-tenant read). — `tests/security/test_service_isolation.py` asserts each layer separately: the ORM layer on the compiled statement, the RLS layer on the visible result.
+- [x] Every shared service has an idempotency test. — identity link, `provider_event_id`, `idempotency_key`, scheduler key, and the `Idempotency-Key` middleware.
+- [x] A full inbound→outbound round trip works end to end with a stub adapter. — `tests/integration/test_round_trip.py`.
+- [x] Retry budget is enforced and visible in `delivery_attempts`. — the attempt count equals the budget exactly, and a spent budget schedules no further attempt.
+- [x] `audit_log` rejects mutation. — `tests/security/test_audit_log.py`.
 
 ---
 
