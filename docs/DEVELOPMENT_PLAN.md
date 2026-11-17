@@ -173,13 +173,13 @@ docs/
 |---|---|---|
 | 3.1 | Source adapter interface + a stub adapter with seeded fixtures | CG-04 | ✅ `platform/source.py` — the `CustomerOrderSource` protocol, the normalised source dataclasses and `StubSource` with seeded fixtures. The stub is the seam: a real adapter is a one-class change once OD-01 is answered |
 | 3.2 | Sync job: full backfill + incremental `updated_since`; phone → E.164, email → lowercase normalisation; source status → `qualifying` mapping with a rule version | CG-04, OD-02 | ✅ `platform/sync.py` + the `source_sync` job handler. `configs/qualifying_order_rules.json` is the rule set; every order records the `qualifying_rule_version` that decided it. Figures are recomputed from the stored qualifying orders, never accumulated |
-| 3.3 | `customers`, `customer_orders`, `order_items`, `products`, `product_variants` models + derived `total_orders`, `total_spend`, `last_purchase_at`, `is_repeat_buyer` | CG-01, CG-02 |
-| 3.4 | `GET /api/customer-genome/repeat-buyers` — cursor-paginated, filters | CG-01 |
-| 3.5 | `GET /api/customers/{id}/history` — timeline, date + product filters | CG-02 |
-| 3.6 | Identity resolution ladder: verified link → phone → email → staff link → never display name | CG-03 |
-| 3.7 | `POST /api/customers/{id}/link-identity`, `GET/PATCH /api/customer-genome/returning-bubbles` | CG-03, CG-08, CG-10 |
-| 3.8 | Bubble engine: qualify by `received_at`, upsert on (business, customer, conversation), state machine new/seen/dismissed, re-open on new message | CG-05…CG-08, CG-11 |
-| 3.9 | Live figures recomputed from authoritative history, with `data_as_of` | CG-09 |
+| 3.3 | `customers`, `customer_orders`, `order_items`, `products`, `product_variants` models + derived `total_orders`, `total_spend`, `last_purchase_at`, `is_repeat_buyer` | CG-01, CG-02 | ✅ `models/customer.py` + the sync job's recompute pass |
+| 3.4 | `GET /api/customer-genome/repeat-buyers` — cursor-paginated, filters | CG-01 | ✅ `api/genome.py`. The list is **derived** (JOIN + `HAVING count(qualifying) >= 2`), so a corrected order moves a customer on or off the list |
+| 3.5 | `GET /api/customers/{id}/history` — timeline, date + product filters | CG-02 | ✅ `api/genome.py`. The timeline shows every order; the *figures* count only the qualifying ones |
+| 3.6 | Identity resolution ladder: verified link → phone → email → staff link → never display name | CG-03 | ✅ `platform/identity.py`. A rung with several candidates is a **recorded conflict**, never a merge |
+| 3.7 | `POST /api/customers/{id}/link-identity`, `GET/PATCH /api/customer-genome/returning-bubbles` | CG-03, CG-08, CG-10 | ✅ `api/genome.py` + `api/bubbles.py` |
+| 3.8 | Bubble engine: qualify by `received_at`, upsert on (business, customer, conversation), state machine new/seen/dismissed, re-open on new message | CG-05…CG-08, CG-11 | ✅ `platform/bubbles.py` + `platform/inbound_processing.py` + the `process_inbound` job handler. Qualification compares the qualifying orders' `ordered_at` against the message's `received_at`, so a late webhook cannot make a first-time buyer look returning |
+| 3.9 | Live figures recomputed from authoritative history, with `data_as_of` | CG-09 | ✅ `platform/genome.py` — `customer_figures` reads the qualifying orders at read time; the bubble card carries the same numbers plus `data_as_of` |
 | 3.10 | `product_interests`, waiting-list grouping by product **and** variant | RP-02, RP-03 |
 | 3.11 | Restock detection worker: unavailable → available transition → `restock_events` + owner notification, **no send path** | RP-04 |
 | 3.12 | Batch preview: recipients, channel per recipient, eligibility, skip reasons, stock warning, template merge preview | RP-05…RP-07, RP-09 |

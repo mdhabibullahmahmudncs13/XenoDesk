@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.jobs.runner import register
 from xenovarients.platform.channels import build_adapters
+from xenovarients.platform.inbound_processing import process_pending_events
 from xenovarients.platform.outbound import dispatch_batch
 from xenovarients.platform.source import StubSource
 from xenovarients.platform.sync import sync_customers, sync_inventory, sync_orders
@@ -89,3 +90,23 @@ def _as_datetime(value: Any) -> datetime | None:
     if isinstance(value, str):
         return datetime.fromisoformat(value)
     raise ValueError(f"updated_since must be a timestamp, got {type(value).__name__}.")
+
+
+@register("process_inbound")
+async def process_inbound(session: AsyncSession, payload: dict[str, Any]) -> None:
+    """Turn the stored inbound events into Returning Customer bubbles.
+
+    The webhook endpoint only stores and acknowledges; this handler does the work
+    afterwards, so a slow resolution never makes a provider time out.
+    """
+    business_id = payload.get("business_id")
+    if business_id is None:
+        raise ValueError("process_inbound needs a business_id in its payload.")
+
+    redis = _redis()
+    await process_pending_events(
+        session,
+        business_id=business_id,
+        limit=int(payload.get("limit") or 50),
+        redis=redis,
+    )

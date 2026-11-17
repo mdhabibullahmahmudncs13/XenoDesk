@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from xenovarients.api import auth, events, notifications, webhooks
+from xenovarients.api import auth, bubbles, events, genome, notifications, webhooks
 from xenovarients.api.errors import register_exception_handlers
 from xenovarients.api.idempotency import IdempotencyMiddleware
 from xenovarients.api.middleware import RequestContextMiddleware
@@ -45,6 +45,8 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     app.include_router(auth.router)
     app.include_router(events.router)
+    app.include_router(bubbles.router)
+    app.include_router(genome.router)
     app.include_router(notifications.router)
     app.include_router(webhooks.router)
 

@@ -27,6 +27,7 @@ class JobType(str, enum.Enum):
     inventory_poll = "inventory_poll"
     retry_delivery = "retry_delivery"
     source_sync = "source_sync"
+    process_inbound = "process_inbound"
 
 
 class JobState(str, enum.Enum):
