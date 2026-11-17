@@ -210,3 +210,6 @@ class ContactPermission(Base, TenantScopedMixin, TimestampMixin):
     eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     opted_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The purposes this consent covers. Consent for one purpose is not consent for
+    # another — a customer who agreed to a review request has not agreed to an ad.
+    purposes: Mapped[list[str]] = mapped_column(JSON(), default=list, server_default="[]")

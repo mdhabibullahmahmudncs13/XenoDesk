@@ -93,13 +93,19 @@ class RevokedToken(Base, TimestampMixin):
 
 
 class AuditLog(Base, TimestampMixin):
-    """Immutable activity log. A DB trigger blocks UPDATE and DELETE."""
+    """Immutable activity log. A DB trigger blocks UPDATE and DELETE.
+
+    The ``business_id`` FK is ``RESTRICT``, not ``CASCADE``: the trigger forbids
+    DELETE on this table, so a cascading delete would fail anyway. RESTRICT states the
+    real rule — a business with audit history cannot be hard-deleted. Businesses are
+    deactivated, not deleted.
+    """
 
     __tablename__ = "audit_log"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     business_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("businesses.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
