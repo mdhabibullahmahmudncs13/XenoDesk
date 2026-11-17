@@ -34,6 +34,7 @@ from xenovarients.models.outbound import (
     OutboundStatus,
     SkipReason,
 )
+from xenovarients.platform.ratelimit import check as check_rate_limit
 
 
 @dataclass(frozen=True)
@@ -158,12 +159,17 @@ async def dispatch_one(
     message: OutboundMessage,
     adapter: ChannelAdapter,
     rules: dict[str, Any] | None = None,
+    redis: Any | None = None,
 ) -> OutboundMessage:
     """Attempt one send, recording the attempt either way.
 
     **Eligibility is re-checked here, at send time.** The preview showed what
     *would* happen; this decides what *actually* happens. A recipient who opted out
     between the preview and the send is skipped with a recorded reason, not sent to.
+
+    **The channel's rate limit is checked before the send.** A message over the
+    limit is deferred, not failed: it has not been attempted, so it must not
+    consume the retry budget, and it must be tried again once the window resets.
 
     A failure increments ``attempt_count`` and schedules the next attempt with
     exponential backoff, up to the configured maximum. Once the budget is spent the
@@ -181,6 +187,21 @@ async def dispatch_one(
         message.next_attempt_at = None
         await session.flush()
         return message
+
+    if redis is not None:
+        limit = await check_rate_limit(
+            redis, business_id=message.business_id, channel=message.channel
+        )
+        if not limit.allowed:
+            # Deferred, not failed: no attempt was made, so the retry budget is
+            # untouched and the message is tried again when the window resets.
+            message.status = OutboundStatus.pending.value
+            message.error_code = "rate_limited"
+            message.next_attempt_at = datetime.now(UTC) + timedelta(
+                seconds=limit.retry_after_seconds
+            )
+            await session.flush()
+            return message
 
     result = adapter.send(
         to_address=message.to_address,
@@ -269,6 +290,7 @@ async def dispatch_batch(
     adapter: ChannelAdapter,
     limit: int = 50,
     rules: dict[str, Any] | None = None,
+    redis: Any | None = None,
 ) -> dict[str, int]:
     """Send a batch of pending messages.
 
@@ -280,17 +302,22 @@ async def dispatch_batch(
     that transaction ends.
     """
     messages = await claim_pending(session, business_id=business_id, limit=limit)
-    counts = {"sent": 0, "failed": 0, "retried": 0, "skipped": 0}
+    counts = {"sent": 0, "failed": 0, "retried": 0, "skipped": 0, "deferred": 0}
     for message in messages:
         if message.channel != adapter.channel:
             continue
-        await dispatch_one(session, message=message, adapter=adapter, rules=rules)
+        await dispatch_one(session, message=message, adapter=adapter, rules=rules, redis=redis)
         if message.status == OutboundStatus.sent.value:
             counts["sent"] += 1
         elif message.status == OutboundStatus.failed.value:
             counts["failed"] += 1
         elif message.status == OutboundStatus.skipped.value:
             counts["skipped"] += 1
+        elif message.error_code == "rate_limited":
+            # Deferred by the rate limiter — not an attempt, so not a retry. The
+            # status is still pending, the same as a failed send awaiting its
+            # backoff, so the error code is what tells them apart.
+            counts["deferred"] += 1
         else:
             counts["retried"] += 1
     return counts

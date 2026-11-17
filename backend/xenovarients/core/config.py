@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     max_delivery_attempts: int = 3
     delivery_retry_base_seconds: int = 30
 
+    # --- Outbound rate limits (sends per business per channel per minute) ---
+    # Zero means "use the built-in default for that channel".
+    rate_limit_email: int = 0
+    rate_limit_sms: int = 0
+    rate_limit_messenger: int = 0
+    rate_limit_whatsapp: int = 0
+
     # --- Business defaults (OD-02, OD-08) ---
     default_timezone: str = "Asia/Dhaka"
     default_currency: str = "BDT"

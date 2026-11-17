@@ -32,8 +32,23 @@ async def retry_delivery(session: AsyncSession, payload: dict[str, Any]) -> None
     adapters = build_adapters()
     wanted: list[str] = payload.get("channels") or list(adapters)
 
+    redis = _redis()
     for channel in wanted:
         adapter = adapters.get(channel)
         if adapter is None:
             continue
-        await dispatch_batch(session, business_id=business_id, adapter=adapter)
+        await dispatch_batch(session, business_id=business_id, adapter=adapter, redis=redis)
+
+
+def _redis() -> Any:
+    """The Redis client for the rate limiter.
+
+    None when Redis is unreachable: the limiter fails open, so the sends go out
+    and the provider's own throttle handles the overflow.
+    """
+    from xenovarients.platform.realtime import get_redis
+
+    try:
+        return get_redis()
+    except Exception:  # noqa: BLE001 — a missing Redis must not stop dispatch
+        return None

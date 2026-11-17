@@ -370,3 +370,61 @@ async def test_an_unconfigured_channel_is_skipped_not_retried(
     assert message.status == OutboundStatus.skipped.value
     assert message.error_code == "email_provider_not_configured"
     assert message.next_attempt_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limited_message_is_deferred_not_failed(
+    session, businesses, bind, customer_factory
+):
+    """Over the channel's rate limit, the message waits — it is not a failure.
+
+    No send was attempted, so the retry budget must be untouched and the message
+    must stay pending for the next window.
+    """
+    business_one, _ = businesses
+    await bind(business_one.id)
+    customer = await customer_factory(business_one, email_normalised="p@example.com")
+    message = await _enqueue(session, business_one.id, customer.id)
+    await session.commit()
+
+    class FullRedis:
+        async def incr(self, key: str) -> int:
+            return 999_999
+
+        async def expire(self, key: str, seconds: int) -> bool:
+            return True
+
+    adapter = StubAdapter("email")
+    await dispatch_one(session, message=message, adapter=adapter, redis=FullRedis())
+    await session.commit()
+
+    assert adapter.sent == [], "the message must not be sent over the limit"
+    assert message.status == OutboundStatus.pending.value
+    assert message.error_code == "rate_limited"
+    assert message.attempt_count == 0, "a deferred message must not consume the retry budget"
+    assert message.next_attempt_at is not None
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limited_message_is_not_claimed_again_immediately(
+    session, businesses, bind, customer_factory
+):
+    """The deferred message waits for the window to reset."""
+    business_one, _ = businesses
+    await bind(business_one.id)
+    customer = await customer_factory(business_one, email_normalised="q@example.com")
+    message = await _enqueue(session, business_one.id, customer.id)
+    await session.commit()
+
+    class FullRedis:
+        async def incr(self, key: str) -> int:
+            return 999_999
+
+        async def expire(self, key: str, seconds: int) -> bool:
+            return True
+
+    await dispatch_one(session, message=message, adapter=StubAdapter("email"), redis=FullRedis())
+    await session.commit()
+
+    claimed = await claim_pending(session, business_id=business_one.id)
+    assert message.id not in [m.id for m in claimed]
