@@ -113,3 +113,39 @@ async def test_rls_hides_everything_without_a_tenant(session: AsyncSession, two_
     await session.execute(text("SELECT set_config('app.business_id', '', true)"))
     count = await session.scalar(text("SELECT count(*) FROM customers"))
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_cannot_touch_another_tenant(session: AsyncSession, two_tenants, bind):
+    """A statement-level UPDATE carries the tenant predicate too.
+
+    The ORM filter adds ``business_id = <current tenant>`` to a bulk UPDATE, so a
+    tenant-agnostic ``UPDATE customers SET ...`` matches only its own rows.
+
+    The assertion is on the *compiled statement*, not on the visible result. RLS
+    would hide a cross-tenant write even if the ORM predicate were missing, so
+    checking the outcome alone cannot tell the two layers apart — and a test that
+    passes whichever layer is broken is not a test.
+    """
+    from sqlalchemy import update
+
+    b1, b2 = two_tenants
+    await bind(b1)
+
+    statement = update(Customer).values(name="renamed")
+    from xenovarients.db.tenant import _apply_tenant_predicate
+
+    scoped = _apply_tenant_predicate(statement, str(b1))
+    compiled = scoped.compile()
+    sql = str(compiled)
+    params = {key: str(value) for key, value in compiled.params.items()}
+
+    assert "business_id" in sql
+    assert str(b1) in params.values()
+
+    await session.execute(scoped)
+    await session.commit()
+
+    await bind(b2)
+    rows = (await session.execute(select(Customer))).scalars().all()
+    assert [r.name for r in rows] == ["cust-two"]

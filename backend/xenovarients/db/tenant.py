@@ -18,7 +18,7 @@ from collections.abc import Iterator
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import event, inspect
+from sqlalchemy import Update, event, inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -90,26 +90,39 @@ def _is_tenant_scoped(entity: Any) -> bool:
     return bool(getattr(mapper.class_, "__tenant_scoped__", False))
 
 
+def _has_business_predicate(statement: Any, business_id: str) -> bool:
+    """Whether the statement already filters on this business_id.
+
+    The WHERE clause is not always a BooleanClauseList — a single ``column == value``
+    is a bare BinaryExpression — so the clauses are collected defensively.
+    """
+    whereclause = statement.whereclause
+    if whereclause is None:
+        return False
+    clauses = getattr(whereclause, "clauses", None)
+    if clauses is None:
+        clauses = [whereclause]
+    for clause in clauses:
+        right = getattr(clause, "right", None)
+        if right is not None and getattr(right, "value", None) == business_id:
+            return True
+    return False
+
+
 def _apply_tenant_predicate(statement: Any, business_id: str) -> Any:
     """Add the business_id predicate to a statement if it is not already present."""
-    if hasattr(statement, "get_final_froms"):
-        # UPDATE/DELETE
-        target = statement.get_final_froms()[0]
-        return statement.where(target.c.business_id == business_id)
+    if isinstance(statement, Update):
+        # An UPDATE carries its target table directly; there is no FROM clause.
+        if _has_business_predicate(statement, business_id):
+            return statement
+        return statement.where(statement.table.c.business_id == business_id)
     # SELECT
     froms = statement.get_final_froms()
     if not froms:
         return statement
     for from_ in froms:
         if "business_id" in from_.c:
-            existing = statement.whereclause
-            # Avoid double-adding the same predicate.
-            already = any(
-                getattr(clause, "right", None) is not None
-                and getattr(clause.right, "value", None) == business_id
-                for clause in existing.clauses
-            )
-            if not already:
+            if not _has_business_predicate(statement, business_id):
                 statement = statement.where(from_.c.business_id == business_id)
             break
     return statement

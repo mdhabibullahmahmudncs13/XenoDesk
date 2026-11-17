@@ -274,6 +274,10 @@ async def dispatch_batch(
 
     One failed recipient does not stop the others: each message is attempted and
     recorded independently.
+
+    The caller commits. This mirrors ``enqueue``: the message and the action that
+    caused it share one transaction, and whoever calls the dispatcher decides where
+    that transaction ends.
     """
     messages = await claim_pending(session, business_id=business_id, limit=limit)
     counts = {"sent": 0, "failed": 0, "retried": 0, "skipped": 0}
@@ -289,5 +293,4 @@ async def dispatch_batch(
             counts["skipped"] += 1
         else:
             counts["retried"] += 1
-    await session.commit()
     return counts
