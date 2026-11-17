@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from xenovarients.api import auth
+from xenovarients.api import auth, webhooks
 from xenovarients.api.errors import register_exception_handlers
 from xenovarients.api.middleware import RequestContextMiddleware
 from xenovarients.core.config import get_settings
@@ -38,6 +38,7 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(auth.router)
+    app.include_router(webhooks.router)
 
     @app.get("/health", tags=["ops"])
     async def health() -> dict[str, str]:

@@ -34,6 +34,10 @@ class Business(Base, TimestampMixin):
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Dhaka")
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="BDT")
     settings: Mapped[dict[str, Any]] = mapped_column(JSON(), default=dict, server_default="{}")
+    # Per-business secret used to verify inbound webhooks. The webhook URL carries
+    # the business id, so the receiver can look the secret up and route the event to
+    # the right tenant without an auth header.
+    webhook_secret: Mapped[str] = mapped_column(String(255), nullable=False, default="")
 
 
 class User(Base, TimestampMixin):

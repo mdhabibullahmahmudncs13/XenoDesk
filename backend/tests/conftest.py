@@ -195,7 +195,12 @@ async def businesses(
     """Two unrelated businesses — the fixture pair for cross-tenant tests."""
     made = []
     for name in ("Business One", "Business Two"):
-        business = Business(name=name, timezone="Asia/Dhaka", currency="BDT")
+        business = Business(
+            name=name,
+            timezone="Asia/Dhaka",
+            currency="BDT",
+            webhook_secret="webhook-secret-for-tests",
+        )
         session.add(business)
         await session.flush()
         made.append(business)
