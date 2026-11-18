@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 import jwt
 from fastapi import APIRouter, Depends, Header, Response
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.api.deps import (
@@ -20,7 +20,7 @@ from xenovarients.api.deps import (
     get_principal,
     get_tenant_session,
 )
-from xenovarients.api.errors import Conflict, Unauthorized
+from xenovarients.api.errors import Conflict, Unauthorized, Unavailable
 from xenovarients.core.config import get_settings
 from xenovarients.core.security import (
     create_access_token,
@@ -55,48 +55,53 @@ def _business_summary(business: Business) -> BusinessSummary:
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: LoginRequest, response: Response) -> TokenResponse:
     settings = get_settings()
-    async with SessionLocal() as session:
-        install_tenant_filter(session)
-        try:
-            result = await session.execute(select(User).where(User.email == payload.email.lower()))
-            user = result.scalar_one_or_none()
-            if user is None or not verify_password(payload.password, user.password_hash):
-                # Same message either way — do not reveal whether the email exists.
-                raise Unauthorized("Incorrect email or password.")
-            if not user.is_active:
-                raise Unauthorized("User account is inactive.")
-
-            memberships = (
-                await session.execute(
-                    select(BusinessMembership, Business)
-                    .join(Business, Business.id == BusinessMembership.business_id)
-                    .where(BusinessMembership.user_id == user.id)
+    try:
+        async with SessionLocal() as session:
+            install_tenant_filter(session)
+            try:
+                result = await session.execute(
+                    select(User).where(User.email == payload.email.lower())
                 )
-            ).all()
-            if not memberships:
-                raise Unauthorized("This account is not a member of any business.")
+                user = result.scalar_one_or_none()
+                if user is None or not verify_password(payload.password, user.password_hash):
+                    # Same message either way — do not reveal whether the email exists.
+                    raise Unauthorized("Incorrect email or password.")
+                if not user.is_active:
+                    raise Unauthorized("User account is inactive.")
 
-            membership, business = memberships[0]
-            if len(memberships) > 1:
-                # Ambiguous without a business selector — the client asks, then retries.
-                raise Unauthorized(
-                    "This account belongs to multiple businesses. "
-                    "Select one with the X-Business-Id header.",
-                    extra={
-                        "memberships": [
-                            {
-                                "business": _business_summary(b).model_dump(mode="json"),
-                                "role": m.role,
-                            }
-                            for m, b in memberships
-                        ]
-                    },
-                )
+                memberships = (
+                    await session.execute(
+                        select(BusinessMembership, Business)
+                        .join(Business, Business.id == BusinessMembership.business_id)
+                        .where(BusinessMembership.user_id == user.id)
+                    )
+                ).all()
+                if not memberships:
+                    raise Unauthorized("This account is not a member of any business.")
 
-            user.last_login_at = datetime.now(UTC)
-            await session.commit()
-        finally:
-            reset_tenant()
+                membership, business = memberships[0]
+                if len(memberships) > 1:
+                    # Ambiguous without a business selector — the client asks, then retries.
+                    raise Unauthorized(
+                        "This account belongs to multiple businesses. "
+                        "Select one with the X-Business-Id header.",
+                        extra={
+                            "memberships": [
+                                {
+                                    "business": _business_summary(b).model_dump(mode="json"),
+                                    "role": m.role,
+                                }
+                                for m, b in memberships
+                            ]
+                        },
+                    )
+
+                user.last_login_at = datetime.now(UTC)
+                await session.commit()
+            finally:
+                reset_tenant()
+    except (DBAPIError, OSError, BaseExceptionGroup) as exc:
+        raise Unavailable("Database is unavailable.") from exc
 
     token = create_access_token(user_id=user.id, business_id=business.id, role=membership.role)
     response.headers["Cache-Control"] = "no-store"

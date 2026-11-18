@@ -9,7 +9,7 @@ import { clearAccessToken, fetchApi } from "../lib/api";
 const groups = [
   {
     label: "Overview",
-    links: [{ label: "Dashboard", href: "/" }],
+    links: [{ label: "Dashboard", href: "/dashboard" }],
   },
   {
     label: "Customer Genome",

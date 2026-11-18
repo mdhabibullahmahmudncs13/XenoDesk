@@ -3,7 +3,7 @@
 import { FormEvent, useState } from "react";
 import { setAccessToken } from "../lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8001";
 
 export function SignupForm() {
   const [values, setValues] = useState({ business_name: "", name: "", email: "", password: "" });

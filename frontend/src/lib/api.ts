@@ -3,7 +3,7 @@ export type ApiState<T> =
   | { status: "ready"; data: T }
   | { status: "error"; message: string };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8001";
 
 export function setAccessToken(token: string): void {
   window.localStorage.setItem("xenovarients_access_token", token);

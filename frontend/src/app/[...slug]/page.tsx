@@ -5,6 +5,7 @@ import { CustomerHistory } from "../../components/CustomerHistory";
 import { Screen } from "../../components/Screen";
 import { SignupForm } from "../../components/SignupForm";
 import { Tour } from "../../components/Tour";
+import { Dashboard } from "../../components/Dashboard";
 
 const screens: Record<string, { title: string; endpoint?: string; blocked?: boolean }> = {
   login: { title: "Sign in" },
@@ -110,6 +111,7 @@ export default async function RoutedScreen({
   if (!screen) notFound();
   if (key === "login" || key === "auth/login") return <AuthForm />;
   if (key === "signup" || key === "auth/signup") return <SignupForm />;
+  if (key === "dashboard") return <Dashboard />;
   if (key === "chat" || key === "workspace/chat") return <Chat />;
   if (key === "tour" || key === "workspace/tour") return <Tour />;
   if (key === "customer-genome/history") return <CustomerHistory />;

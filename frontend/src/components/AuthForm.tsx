@@ -1,16 +1,26 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { setAccessToken } from "../lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8001";
 
 export function AuthForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const isLocalHost =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    if (isLocalHost) {
+      setEmail("test.user@example.com");
+      setPassword("TestUser123!");
+    }
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -22,7 +32,13 @@ export function AuthForm() {
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      if (!response.ok) throw new Error("Incorrect email or password.");
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { detail?: string; code?: string } | null;
+        if (response.status === 503 || body?.code === "unavailable") {
+          throw new Error("The API database is unavailable. Start PostgreSQL and try again.");
+        }
+        throw new Error(body?.detail || "Incorrect email or password.");
+      }
       const data = (await response.json()) as { access_token: string };
       setAccessToken(data.access_token);
       window.location.assign("/dashboard");
@@ -41,11 +57,11 @@ export function AuthForm() {
       <form onSubmit={submit} className="auth-form">
         <label>
           Email
-          <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input required autoComplete="username" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
         </label>
         <label>
           Password
-          <input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <input required autoComplete="current-password" minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
         </label>
         <button disabled={busy} type="submit">{busy ? "Signing in…" : "Sign in"}</button>
       </form>
