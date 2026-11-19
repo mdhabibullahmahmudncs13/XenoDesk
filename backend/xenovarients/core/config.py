@@ -27,6 +27,19 @@ class Settings(BaseSettings):
     # --- Redis ---
     redis_url: str = Field(default="redis://localhost:6379/0")
 
+    # --- Documents, vectors and local AI ---
+    mongo_uri: str = "mongodb://localhost:57017"
+    mongo_db_name: str = "xenovarients"
+    vector_backend: str = "pgvector"
+    qdrant_url: str = "http://localhost:6333"
+    ollama_base_url: str = "http://localhost:11434"
+    llm_chat_model: str = "qwen2.5:7b"
+    embedding_model: str = "bge-m3"
+    embedding_dim: int = 1024
+    retrieval_top_k: int = 8
+    retrieval_min_score: float = 0.35
+    llm_max_concurrency: int = 2
+
     # --- Auth ---
     # No default: a missing secret must fail loudly, not silently fall back to a known value.
     jwt_secret: str

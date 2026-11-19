@@ -18,7 +18,7 @@ from collections.abc import Iterator
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import Update, event, inspect
+from sqlalchemy import Delete, Update, event, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -40,27 +40,27 @@ def set_tenant(business_id: str) -> None:
 
 
 async def bind_tenant(session: Any, business_id: str) -> None:
-    """Set the tenant on both layers: the ORM contextvar and the Postgres session variable.
+    """Set the tenant on both layers: the ORM contextvar and the Postgres variable.
 
-    The Postgres variable is set at *session* scope (``set_config(..., false)``), not
-    transaction scope. A transaction-scoped value is discarded on commit, which would
-    silently drop the RLS filter for every write after the first commit. A pooled
-    connection keeps the value until it is cleared, so :func:`clear_tenant` must run
-    before the session returns to the pool.
+    The Postgres variable is re-applied at the start of *every* transaction by the
+    ``after_begin`` listener (see :func:`_install`). A session holds one connection per
+    transaction, and ``commit()`` returns that connection to the pool — so setting the
+    variable once on whatever connection happens to be checked out is not enough. The
+    next statement can run on a different pooled connection where the variable is
+    unset, RLS then hides the tenant's rows, and a refresh or a follow-up read fails.
+    Transaction scope (``set_config(..., true)``) means the value disappears together
+    with the transaction instead of leaking onto a pooled connection.
     """
-    from sqlalchemy import text
-
+    _install(session)
     set_tenant(business_id)
     await session.execute(
-        text("SELECT set_config('app.business_id', :b, false)"), {"b": str(business_id)}
+        text("SELECT set_config('app.business_id', :b, true)"), {"b": str(business_id)}
     )
 
 
 async def clear_tenant(session: Any) -> None:
-    """Clear the Postgres session variable so the connection is safe to reuse."""
-    from sqlalchemy import text
-
-    await session.execute(text("SELECT set_config('app.business_id', '', false)"))
+    """Clear the Postgres variable on the current transaction, belt and braces."""
+    await session.execute(text("SELECT set_config('app.business_id', '', true)"))
 
 
 def reset_tenant() -> None:
@@ -111,8 +111,8 @@ def _has_business_predicate(statement: Any, business_id: str) -> bool:
 
 def _apply_tenant_predicate(statement: Any, business_id: str) -> Any:
     """Add the business_id predicate to a statement if it is not already present."""
-    if isinstance(statement, Update):
-        # An UPDATE carries its target table directly; there is no FROM clause.
+    if isinstance(statement, (Update, Delete)):
+        # An UPDATE or DELETE carries its target table directly; there is no FROM clause.
         if _has_business_predicate(statement, business_id):
             return statement
         return statement.where(statement.table.c.business_id == business_id)
@@ -135,6 +135,20 @@ def _install(session: Any) -> None:
     # ``do_orm_execute`` is a synchronous-only event; on an AsyncSession the listener
     # must be attached to the underlying sync_session.
     target = session.sync_session if hasattr(session, "sync_session") else session
+
+    @event.listens_for(target, "after_begin")
+    def _tenant_on_new_transaction(
+        session: Any, transaction: Any, connection: Any
+    ) -> None:
+        # Every transaction in a tenant session is bound, not just the first one: after a
+        # commit the session may check out a different pooled connection, and without
+        # the variable the RLS policies hide the tenant's own rows.
+        business_id = get_tenant()
+        if business_id is None:
+            return
+        connection.execute(
+            text("SELECT set_config('app.business_id', :b, true)"), {"b": business_id}
+        )
 
     @event.listens_for(target, "do_orm_execute")
     def _tenant_filter(execute_state: Any) -> None:

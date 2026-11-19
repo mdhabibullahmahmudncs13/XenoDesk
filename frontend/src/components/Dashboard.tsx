@@ -7,6 +7,7 @@ import { fetchApi } from "../lib/api";
 type PageItems = { items?: unknown[] };
 
 export function Dashboard() {
+  const [sourcing, setSourcing] = useState<{ tracked_product_count: number; saved_landed_cost: number | null; net_financial_result: number | null; next_action: string; cart_count: number } | null>(null);
   const [repeatBuyers, setRepeatBuyers] = useState<number | null>(null);
   const [waitingLists, setWaitingLists] = useState<number | null>(null);
   const [reviews, setReviews] = useState<number | null>(null);
@@ -16,12 +17,14 @@ export function Dashboard() {
   useEffect(() => {
     let active = true;
     Promise.all([
+      fetchApi<{ tracked_product_count: number; saved_landed_cost: number | null; net_financial_result: number | null; next_action: string; cart_count: number }>("/api/v1/sourcing/dashboard"),
       fetchApi<PageItems>("/api/v1/customer-genome/repeat-buyers?limit=100"),
       fetchApi<PageItems>("/api/v1/customer-genome/product-interests?limit=100"),
       fetchApi<PageItems>("/api/v1/creator-commerce/reviews/library?limit=100"),
       fetchApi<{ count: number }>("/api/v1/notifications/unread-count"),
-    ]).then(([buyers, waiting, reviewItems, unread]) => {
+    ]).then(([sourcingData, buyers, waiting, reviewItems, unread]) => {
       if (!active) return;
+      setSourcing(sourcingData);
       setRepeatBuyers(buyers.items?.length ?? 0);
       setWaitingLists(waiting.items?.length ?? 0);
       setReviews(reviewItems.items?.length ?? 0);
@@ -48,6 +51,20 @@ export function Dashboard() {
         <span className="chip">Live API</span>
       </div>
       {error && <div className="state-card error" role="alert"><strong>Some dashboard data is unavailable</strong><p>{error}</p></div>}
+      {sourcing && (
+        <>
+          <div className="dashboard-actions">
+            <Link className="primary-action" href={sourcing.next_action === "Open onboarding" ? "/onboarding" : "/research"}>
+              {sourcing.next_action}
+            </Link>
+          </div>
+          <div className="dashboard-grid" aria-label="Sourcing summary">
+            <div className="dashboard-stat"><span className="muted">Products being tracked</span><strong>{sourcing.tracked_product_count}</strong></div>
+            <div className="dashboard-stat"><span className="muted">Saved landed cost</span><strong>{sourcing.saved_landed_cost === null ? "Unavailable" : sourcing.saved_landed_cost}</strong></div>
+            <div className="dashboard-stat"><span className="muted">Net financial result</span><strong>{sourcing.net_financial_result === null ? "Unavailable" : sourcing.net_financial_result}</strong></div>
+          </div>
+        </>
+      )}
       <div className="dashboard-grid" aria-label="Dashboard summary">
         {stats.map((stat) => (
           <Link className="dashboard-stat" href={stat.href} key={stat.label}>

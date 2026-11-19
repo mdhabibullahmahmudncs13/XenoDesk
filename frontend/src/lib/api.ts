@@ -28,7 +28,16 @@ export async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> 
     credentials: "include",
   });
   if (!response.ok) {
-    throw new Error(`Request failed (${response.status})`);
+    // The API answers with problem+json whose `detail` is written for a human; show
+    // that sentence instead of "Request failed (400)".
+    let detail = `Request failed (${response.status})`;
+    try {
+      const problem = (await response.json()) as { detail?: unknown };
+      if (typeof problem.detail === "string" && problem.detail) detail = problem.detail;
+    } catch {
+      // A body that is not JSON leaves the status message in place.
+    }
+    throw new Error(detail);
   }
   return response.json() as Promise<T>;
 }

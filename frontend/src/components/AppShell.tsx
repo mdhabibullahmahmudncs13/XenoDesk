@@ -12,6 +12,15 @@ const groups = [
     links: [{ label: "Dashboard", href: "/dashboard" }],
   },
   {
+    label: "Sourcing Workspace",
+    links: [
+      { label: "Onboarding", href: "/onboarding" },
+      { label: "Market intelligence", href: "/research" },
+      { label: "Product search", href: "/research/products" },
+      { label: "Cart", href: "/cart" },
+    ],
+  },
+  {
     label: "Customer Genome",
     links: [
       { label: "Repeat buyers", href: "/customer-genome/repeat-buyers" },
@@ -42,6 +51,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const pathname = usePathname();
   const router = useRouter();
   const [role, setRole] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (pathname === "/" || pathname === "/login" || pathname === "/signup" || pathname === "/auth/login" || pathname === "/auth/signup") return;
@@ -53,13 +63,34 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
       });
   }, [pathname, router]);
 
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [menuOpen]);
+
   if (pathname === "/" || pathname === "/login" || pathname === "/signup" || pathname === "/auth/login" || pathname === "/auth/signup") return <>{children}</>;
   if (role === null) return <div className="state-card shell-loading" role="status">Loading workspace…</div>;
 
   const canManage = role === "owner" || role === "admin";
   return (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="Primary navigation">
+      {menuOpen && (
+        <button
+          className="nav-scrim"
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
+      <aside id="primary-navigation" className={menuOpen ? "sidebar open" : "sidebar"} aria-label="Primary navigation">
         <Link className="brand" href="/">
           XENOVARIENTS
         </Link>
@@ -81,10 +112,20 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
             </section>
           ))}
         </nav>
-        {canManage && <Link className="settings-link" href="/settings">Settings</Link>}
+        <Link className="settings-link" href="/settings/profile">Profile settings</Link>
+        {canManage && <Link className="settings-link" href="/settings">Admin settings</Link>}
       </aside>
       <main className="main-region">
         <header className="topbar">
+          <button
+            className="nav-menu-button"
+            type="button"
+            aria-controls="primary-navigation"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            Menu
+          </button>
           <span className="topbar-title">Workspace</span>
           <div className="topbar-actions">
             <Link href="/notifications" aria-label="Notifications">Notifications</Link>

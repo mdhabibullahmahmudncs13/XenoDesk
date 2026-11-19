@@ -9,8 +9,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8001";
 export function AuthForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const emailInvalid = emailTouched && !email.includes("@");
 
   useEffect(() => {
     const isLocalHost =
@@ -57,12 +60,42 @@ export function AuthForm() {
       <form onSubmit={submit} className="auth-form">
         <label>
           Email
-          <input required autoComplete="username" type="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+          <input
+            id="login-email"
+            name="email"
+            required
+            autoComplete="username"
+            spellCheck={false}
+            type="email"
+            value={email}
+            aria-invalid={emailInvalid}
+            onBlur={() => setEmailTouched(true)}
+            onChange={(event) => setEmail(event.target.value)}
+          />
         </label>
-        <label>
+        <label htmlFor="login-password">
           Password
-          <input required autoComplete="current-password" minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
         </label>
+        <div className="password-field">
+          <input
+            id="login-password"
+            name="password"
+            required
+            autoComplete="current-password"
+            minLength={8}
+            type={passwordVisible ? "text" : "password"}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <button
+            className="password-toggle"
+            type="button"
+            aria-pressed={passwordVisible}
+            onClick={() => setPasswordVisible((visible) => !visible)}
+          >
+            {passwordVisible ? "Hide" : "Show"}
+          </button>
+        </div>
         <button disabled={busy} type="submit">{busy ? "Signing in…" : "Sign in"}</button>
       </form>
       {message && <p className="error-text" role="alert">{message}</p>}

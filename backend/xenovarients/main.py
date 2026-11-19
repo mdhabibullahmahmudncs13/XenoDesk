@@ -1,7 +1,9 @@
 """FastAPI application factory."""
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
 
 from xenovarients.api import (
     ads,
@@ -13,6 +15,7 @@ from xenovarients.api import (
     restock,
     review_permissions,
     reviews,
+    sourcing,
     webhooks,
     workspace,
 )
@@ -47,7 +50,10 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        # Any loopback origin: the dev frontend is opened as localhost, 127.0.0.1 or [::1]
+        # depending on how the server was reached, and a mismatch here shows up in the
+        # browser as "Failed to fetch" rather than as a CORS error.
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -65,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(restock.router)
     app.include_router(reviews.router)
     app.include_router(review_permissions.router)
+    app.include_router(sourcing.router)
     app.include_router(webhooks.router)
 
     @app.get("/health", tags=["ops"])
@@ -84,6 +91,41 @@ def create_app() -> FastAPI:
         except Exception as exc:  # noqa: BLE001 - the healthcheck only needs the reason
             return {"status": "degraded", "database": str(exc)[:200]}
         return {"status": "ok", "database": "ok"}
+
+    @app.get("/health/dependencies", tags=["ops"])
+    async def dependencies() -> dict[str, object]:
+        """Report optional dependency status without making core readiness fail."""
+        from xenovarients.core.config import get_settings
+        from xenovarients.platform.realtime import get_redis
+
+        settings = get_settings()
+        result: dict[str, object] = {}
+        redis = get_redis()
+        try:
+            await redis.ping()
+            result["redis"] = "ok"
+        except Exception as exc:  # noqa: BLE001 - dependency status is explicit
+            result["redis"] = f"degraded: {type(exc).__name__}"
+        finally:
+            await redis.aclose()
+
+        mongo = AsyncIOMotorClient(settings.mongo_uri, serverSelectionTimeoutMS=1000)
+        try:
+            await mongo.admin.command("ping")
+            result["mongo"] = "ok"
+        except Exception as exc:  # noqa: BLE001 - dependency status is explicit
+            result["mongo"] = f"degraded: {type(exc).__name__}"
+        finally:
+            mongo.close()
+
+        try:
+            async with httpx.AsyncClient(timeout=1) as client:
+                response = await client.get(f"{settings.ollama_base_url.rstrip('/')}/api/tags")
+            response.raise_for_status()
+            result["ollama"] = "ok"
+        except (httpx.HTTPError, ValueError) as exc:
+            result["ollama"] = f"degraded: {type(exc).__name__}"
+        return {"status": "ok", "dependencies": result}
 
     return app
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.api.deps import Principal, get_principal, get_tenant_session, require_admin
 from xenovarients.api.errors import BadRequest, NotFound
+from xenovarients.core.config import get_settings
 from xenovarients.models.workspace import (
     AiUsageEvent,
     AnswerType,
@@ -26,6 +27,9 @@ from xenovarients.models.workspace import (
     TourState,
     TourStep,
 )
+from xenovarients.platform.llm.client import LlmUnavailable, OllamaClient
+from xenovarients.platform.llm.guard import build_prompt
+from xenovarients.platform.vector.store import PgVectorStore
 from xenovarients.platform.workspace import (
     StubLLM,
     blocked_intent,
@@ -260,9 +264,28 @@ async def send_chat_message(
         input_tokens = output_tokens = 0
         route = AnswerType.data.value
     else:
-        answer, input_tokens, output_tokens = await StubLLM().answer(
-            f"<untrusted-user-question>{question}</untrusted-user-question>"
-        )
+        try:
+            client = OllamaClient()
+            hits = await PgVectorStore().search(
+                session,
+                business_id=principal.business_id,
+                embedding=await client.embed(question),
+                limit=get_settings().retrieval_top_k,
+            )
+            hits = [hit for hit in hits if hit.score >= get_settings().retrieval_min_score]
+            answer = await client.chat(
+                build_prompt(
+                    "Answer only from verified data. If it is insufficient, say so.",
+                    question,
+                    [hit.content for hit in hits],
+                )
+            )
+            references = {"chunks": [str(hit.chunk_id) for hit in hits]}
+            input_tokens = output_tokens = 0
+        except LlmUnavailable:
+            answer, input_tokens, output_tokens = await StubLLM().answer(
+                f"<untrusted-user-question>{question}</untrusted-user-question>"
+            )
         answer_type = AnswerType.ai.value
     now = datetime.now(UTC)
     session.add_all(

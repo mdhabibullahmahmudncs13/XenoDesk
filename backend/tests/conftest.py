@@ -57,6 +57,7 @@ async def schema() -> AsyncIterator[None]:
     async with admin.begin() as conn:
         await conn.execute(text("DROP SCHEMA public CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
         await install_rls(conn)
         # Grants must come *after* create_all: GRANT ON ALL TABLES only covers the

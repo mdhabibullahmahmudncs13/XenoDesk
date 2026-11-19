@@ -21,7 +21,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.db.session import SessionLocal
-from xenovarients.db.tenant import bind_tenant, clear_tenant, reset_tenant
+from xenovarients.db.tenant import (
+    bind_tenant,
+    clear_tenant,
+    install_tenant_filter,
+    reset_tenant,
+)
 from xenovarients.models.platform import JobState, ScheduledJob
 from xenovarients.platform.scheduler import claim_due, complete, fail
 
@@ -88,7 +93,10 @@ async def reap_stale_claims(session: AsyncSession, *, now: datetime | None = Non
     result = await session.execute(
         select(ScheduledJob).where(
             ScheduledJob.state == JobState.claimed.value,
-            ScheduledJob.created_at <= cutoff,
+            # The claim time, not the creation time: a job scheduled an hour ago and
+            # claimed a second ago is not stale, and reaping it would let a second
+            # worker run a handler the first one is still running.
+            ScheduledJob.updated_at <= cutoff,
         )
     )
     stale = list(result.scalars().all())
@@ -108,6 +116,7 @@ async def run_due(business_id: uuid.UUID, *, limit: int = 20) -> dict[str, int]:
     counts = {"done": 0, "failed": 0}
 
     async with SessionLocal() as session:
+        install_tenant_filter(session)
         await bind_tenant(session, str(business_id))
         try:
             jobs = await claim_due(session, business_id=business_id, limit=limit)
@@ -119,6 +128,7 @@ async def run_due(business_id: uuid.UUID, *, limit: int = 20) -> dict[str, int]:
 
     for job in jobs:
         async with SessionLocal() as session:
+            install_tenant_filter(session)
             await bind_tenant(session, str(business_id))
             try:
                 done = await run_job(session, job=job)
@@ -134,10 +144,16 @@ async def run_due(business_id: uuid.UUID, *, limit: int = 20) -> dict[str, int]:
 async def poll_once(business_id: uuid.UUID, *, limit: int = 20) -> dict[str, int]:
     """Reap stale claims, then run what is due. One pass of the worker loop."""
     async with SessionLocal() as session:
+        install_tenant_filter(session)
+        # The reaper reads this tenant's claimed jobs, so it needs the tenant bound
+        # exactly like a handler does — an unbound query raises TenantScopeError.
+        await bind_tenant(session, str(business_id))
         try:
             await reap_stale_claims(session)
         finally:
             await session.rollback()
+            await clear_tenant(session)
+            reset_tenant()
     return await run_due(business_id, limit=limit)
 
 

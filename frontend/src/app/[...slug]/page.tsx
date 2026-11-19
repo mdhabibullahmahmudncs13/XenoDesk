@@ -6,6 +6,7 @@ import { Screen } from "../../components/Screen";
 import { SignupForm } from "../../components/SignupForm";
 import { Tour } from "../../components/Tour";
 import { Dashboard } from "../../components/Dashboard";
+import { SourcingWorkspace } from "../../components/SourcingWorkspace";
 
 const screens: Record<string, { title: string; endpoint?: string; blocked?: boolean }> = {
   login: { title: "Sign in" },
@@ -13,6 +14,15 @@ const screens: Record<string, { title: string; endpoint?: string; blocked?: bool
   "auth/login": { title: "Sign in" },
   "auth/signup": { title: "Sign up" },
   dashboard: { title: "Dashboard", endpoint: "/api/v1/notifications?limit=1", },
+  onboarding: { title: "Onboarding" },
+  "en/onboarding": { title: "Onboarding" },
+  research: { title: "Market Intelligence" },
+  "en/research": { title: "Market Intelligence" },
+  "research/products": { title: "Product Search" },
+  "en/research/products": { title: "Product Search" },
+  cart: { title: "Cart" },
+  "en/cart": { title: "Cart" },
+  "en/dashboard": { title: "Dashboard" },
   "customer-genome/history": { title: "Customer history", blocked: true },
   "customer-genome/restore-product": { title: "Restore product", endpoint: "/api/v1/customer-genome/product-interests" },
   "customer-genome/waiting-lists": { title: "Waiting lists", endpoint: "/api/v1/customer-genome/product-interests" },
@@ -86,6 +96,7 @@ const screens: Record<string, { title: string; endpoint?: string; blocked?: bool
   },
   settings: { title: "Settings", endpoint: "/api/v1/creator-commerce/reviews/settings" },
   "settings/account": { title: "Account settings", endpoint: "/api/v1/auth/me" },
+  "settings/profile": { title: "Sourcing profile" },
   chat: { title: "Chat", endpoint: "/api/v1/agent-workspace/faqs" },
   "customer-genome": { title: "Customer genome", blocked: true },
   "creator-commerce": { title: "Creator commerce", blocked: true },
@@ -112,6 +123,12 @@ export default async function RoutedScreen({
   if (key === "login" || key === "auth/login") return <AuthForm />;
   if (key === "signup" || key === "auth/signup") return <SignupForm />;
   if (key === "dashboard") return <Dashboard />;
+  if (key === "en/dashboard") return <Dashboard />;
+  if (key === "onboarding" || key === "en/onboarding") return <SourcingWorkspace view="onboarding" />;
+  if (key === "settings/profile") return <SourcingWorkspace view="settings" />;
+  if (key === "research" || key === "en/research") return <SourcingWorkspace view="research" />;
+  if (key === "research/products" || key === "en/research/products") return <SourcingWorkspace view="products" />;
+  if (key === "cart" || key === "en/cart") return <SourcingWorkspace view="cart" />;
   if (key === "chat" || key === "workspace/chat") return <Chat />;
   if (key === "tour" || key === "workspace/tour") return <Tour />;
   if (key === "customer-genome/history") return <CustomerHistory />;

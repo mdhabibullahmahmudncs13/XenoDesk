@@ -15,6 +15,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.jobs.runner import register
+from xenovarients.models.platform import JobType
 from xenovarients.platform.channels import build_adapters
 from xenovarients.platform.inbound_processing import process_pending_events
 from xenovarients.platform.outbound import dispatch_batch
@@ -146,3 +147,12 @@ async def process_inbound(session: AsyncSession, payload: dict[str, Any]) -> Non
         limit=int(payload.get("limit") or 50),
         redis=redis,
     )
+
+
+# The scheduler's own job-type names, bound to the handlers that already do the work.
+# A job scheduled with one of these used to fail as "no handler registered", which is
+# silent: the worker records the failure and the feature simply never runs.
+# ``inventory_poll`` is the polling loop for restock detection; ``restock_batch_dispatch``
+# drains the outbound rows a confirmed batch queued, channel by channel.
+register(JobType.inventory_poll.value)(restock_detection)
+register(JobType.restock_batch_dispatch.value)(retry_delivery)

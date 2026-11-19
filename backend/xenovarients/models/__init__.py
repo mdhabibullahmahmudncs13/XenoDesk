@@ -18,6 +18,7 @@ from xenovarients.models.customer import (
     Product,
     ProductVariant,
 )
+from xenovarients.models.embedding import EmbeddingChunk, EmbeddingDocument
 from xenovarients.models.messaging import (
     BubbleState,
     Channel,
@@ -53,6 +54,12 @@ from xenovarients.models.review import (
     ReviewRequest,
     ReviewRequestState,
     ReviewSettings,
+)
+from xenovarients.models.sourcing import (
+    MarketSnapshot,
+    SourcingCartListing,
+    SourcingProfile,
+    TrackedProduct,
 )
 from xenovarients.models.tenancy import (
     AuditLog,
@@ -103,6 +110,8 @@ __all__ = [
     "CustomerBubble",
     "CustomerOrder",
     "DeliveryAttempt",
+    "EmbeddingChunk",
+    "EmbeddingDocument",
     "FaqAlias",
     "FaqEntry",
     "IdentityConflict",
@@ -110,6 +119,7 @@ __all__ = [
     "InboundMessageEvent",
     "JobState",
     "JobType",
+    "MarketSnapshot",
     "MessageTemplate",
     "MessagingIdentityLink",
     "Notification",
@@ -135,8 +145,11 @@ __all__ = [
     "Role",
     "ScheduledJob",
     "SkipReason",
+    "SourcingCartListing",
+    "SourcingProfile",
     "TourProgress",
     "TourState",
     "TourStep",
+    "TrackedProduct",
     "User",
 ]
