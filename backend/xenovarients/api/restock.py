@@ -13,7 +13,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from xenovarients.api.deps import Principal, get_principal, get_tenant_session, require_owner
+from xenovarients.api.deps import (
+    Principal,
+    get_principal,
+    get_tenant_session,
+    require_admin,
+    require_owner,
+)
 from xenovarients.api.errors import BadRequest, Conflict, NotFound
 from xenovarients.models.customer import Customer, Product, ProductVariant
 from xenovarients.models.outbound import MessageTemplate
@@ -177,6 +183,130 @@ async def add_product_interest(
     )
 
 
+class RestockEventOut(BaseModel):
+    """One detected restock, with its waiting demand (RP-04, RP-09)."""
+
+    id: str
+    product_id: str
+    product_name: str
+    variant_id: str
+    variant_name: str
+    detected_at: str
+    stock_after: int
+    waiting_count: int
+    batch_count: int
+    last_batch_at: str | None = None
+    preview_url: str
+
+
+class RestockEventsOut(BaseModel):
+    items: list[RestockEventOut] = []
+
+
+@router.get("/restocks")
+async def list_restock_events(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_tenant_session),
+    product_id: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> RestockEventsOut:
+    """Restock events for this business. A restock is a notification, not a send."""
+    events = await restock.restock_events(
+        session,
+        business_id=principal.business_id,
+        product_id=product_id,
+        limit=limit,
+    )
+    return RestockEventsOut(
+        items=[
+            RestockEventOut(
+                id=str(event.event_id),
+                product_id=str(event.product_id),
+                product_name=event.product_name,
+                variant_id=str(event.variant_id),
+                variant_name=event.variant_name,
+                detected_at=event.detected_at.isoformat(),
+                stock_after=event.stock_after,
+                waiting_count=event.waiting_count,
+                batch_count=event.batch_count,
+                last_batch_at=(
+                    event.last_batch_at.isoformat() if event.last_batch_at else None
+                ),
+                preview_url=f"/customer-genome/restock-events/{event.event_id}/preview",
+            )
+            for event in events
+        ]
+    )
+
+
+class TemplateOut(BaseModel):
+    """The restock message template the owner edits (RP-05)."""
+
+    id: str | None = None
+    body: str
+    version: int
+    is_default: bool = False
+    merge_fields: list[str] = []
+
+
+class TemplateIn(BaseModel):
+    body: str
+
+
+@router.get("/restock-template")
+async def get_restock_template(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> TemplateOut:
+    """The active restock template, or the default body when none is saved.
+
+    Reading never creates the template: the preview renders the default until the
+    owner saves their own words.
+    """
+    template = await restock.active_template(session, business_id=principal.business_id)
+    if template is None:
+        return TemplateOut(
+            id=None,
+            body=restock.DEFAULT_TEMPLATE_BODY,
+            version=0,
+            is_default=True,
+            merge_fields=list(restock.MERGE_FIELDS),
+        )
+    return TemplateOut(
+        id=str(template.id),
+        body=template.body,
+        version=template.version,
+        is_default=False,
+        merge_fields=list(restock.MERGE_FIELDS),
+    )
+
+
+@router.put("/restock-template")
+async def save_restock_template(
+    body: TemplateIn,
+    principal: Principal = Depends(require_admin),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> TemplateOut:
+    """Save a new template version. Owner and Admin only."""
+    text = body.body.strip()
+    if not text:
+        raise BadRequest("The template body cannot be empty.")
+    try:
+        template = await restock.set_template(
+            session, business_id=principal.business_id, body=text
+        )
+    except restock.ReservationLanguageRejected as exc:
+        raise BadRequest(str(exc)) from exc
+    await session.commit()
+    return TemplateOut(
+        id=str(template.id),
+        body=template.body,
+        version=template.version,
+        is_default=False,
+        merge_fields=list(restock.MERGE_FIELDS),
+    )
+
+
 class PreviewRecipientOut(BaseModel):
     """One recipient, with the channel chosen and the reason if skipped (RP-06)."""
 
@@ -204,13 +334,22 @@ class PreviewOut(BaseModel):
 @router.get("/restocks/{event_id}/preview")
 async def preview_restock(
     event_id: uuid.UUID,
-    template_id: uuid.UUID = Query(...),
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_tenant_session),
+    template_id: uuid.UUID | None = Query(default=None),
 ) -> PreviewOut:
-    """What confirming this event would send. Writes nothing."""
+    """What confirming this event would send. Writes nothing.
+
+    Without ``template_id`` the active template is used, or the default body when the
+    owner has not saved one yet.
+    """
     event = await _event_or_404(session, principal.business_id, event_id)
-    template = await _template_or_404(session, principal.business_id, template_id)
+    if template_id is not None:
+        template = await _template_or_404(session, principal.business_id, template_id)
+    else:
+        template = await restock.template_for_preview(
+            session, business_id=principal.business_id
+        )
 
     try:
         batch_preview = await restock.preview(

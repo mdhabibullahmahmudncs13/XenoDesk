@@ -1,6 +1,6 @@
 # Technical Requirements Document (TRD)
 
-**Project:** Xenovarients — Customer Genome · Creator Commerce · Agent Workspace
+**Project:** XenoDesk — Customer Genome · Creator Commerce · Agent Workspace
 **Version:** 1.0 (derived from Master Project Documentation v3.0, 16 November 2026)
 **Audience:** Developers, architects, DevOps, QA, security reviewers
 

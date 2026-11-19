@@ -7,6 +7,11 @@ import { SignupForm } from "../../components/SignupForm";
 import { Tour } from "../../components/Tour";
 import { Dashboard } from "../../components/Dashboard";
 import { SourcingWorkspace } from "../../components/SourcingWorkspace";
+import { BatchPreview } from "../../components/BatchPreview";
+import { GenomeOverview } from "../../components/GenomeOverview";
+import { RepeatBuyers } from "../../components/RepeatBuyers";
+import { RestockEvents } from "../../components/RestockEvents";
+import { RestoreProduct } from "../../components/RestoreProduct";
 
 const screens: Record<string, { title: string; endpoint?: string; blocked?: boolean }> = {
   login: { title: "Sign in" },
@@ -23,19 +28,13 @@ const screens: Record<string, { title: string; endpoint?: string; blocked?: bool
   cart: { title: "Cart" },
   "en/cart": { title: "Cart" },
   "en/dashboard": { title: "Dashboard" },
-  "customer-genome/history": { title: "Customer history", blocked: true },
-  "customer-genome/restore-product": { title: "Restore product", endpoint: "/api/v1/customer-genome/product-interests" },
-  "customer-genome/waiting-lists": { title: "Waiting lists", endpoint: "/api/v1/customer-genome/product-interests" },
-  "customer-genome/restock-events": { title: "Restock events", blocked: true },
-  "customer-genome/batch-preview": { title: "Batch preview", blocked: true },
-  "customer-genome/repeat-buyers": {
-    title: "Repeat buyers",
-    endpoint: "/api/v1/customer-genome/repeat-buyers",
-  },
-  "customer-genome/product-interests": {
-    title: "Restore product",
-    endpoint: "/api/v1/customer-genome/product-interests",
-  },
+  "customer-genome/history": { title: "Customer history" },
+  "customer-genome/restore-product": { title: "Restore product" },
+  "customer-genome/waiting-lists": { title: "Waiting lists" },
+  "customer-genome/restock-events": { title: "Restock events" },
+  "customer-genome/batch-preview": { title: "Batch preview" },
+  "customer-genome/repeat-buyers": { title: "Repeat buyers" },
+  "customer-genome/product-interests": { title: "Restore product" },
   "creator-commerce/reviews": {
     title: "Reviews",
     endpoint: "/api/v1/creator-commerce/reviews/library",
@@ -98,7 +97,7 @@ const screens: Record<string, { title: string; endpoint?: string; blocked?: bool
   "settings/account": { title: "Account settings", endpoint: "/api/v1/auth/me" },
   "settings/profile": { title: "Sourcing profile" },
   chat: { title: "Chat", endpoint: "/api/v1/agent-workspace/faqs" },
-  "customer-genome": { title: "Customer genome", blocked: true },
+  "customer-genome": { title: "Customer genome" },
   "creator-commerce": { title: "Creator commerce", blocked: true },
   tour: { title: "Product tour", endpoint: "/api/v1/agent-workspace/tours/steps" },
 };
@@ -112,8 +111,7 @@ export default async function RoutedScreen({
   const key = slug.join("/");
   let screen = screens[key];
   if (!screen && key.startsWith("customer-genome/restock-events/") && key.endsWith("/preview")) {
-    const eventId = key.split("/")[2];
-    screen = { title: "Batch preview and confirm", endpoint: `/api/v1/customer-genome/restocks/${eventId}/preview` };
+    screen = { title: "Batch preview and confirm" };
   }
   if (!screen && key.startsWith("creator-commerce/reviews/") && key.split("/").length === 3) {
     const reviewId = key.split("/")[2];
@@ -132,10 +130,25 @@ export default async function RoutedScreen({
   if (key === "chat" || key === "workspace/chat") return <Chat />;
   if (key === "tour" || key === "workspace/tour") return <Tour />;
   if (key === "customer-genome/history") return <CustomerHistory />;
+  if (key === "customer-genome") return <GenomeOverview />;
+  if (key === "customer-genome/repeat-buyers") return <RepeatBuyers />;
+  if (
+    key === "customer-genome/product-interests" ||
+    key === "customer-genome/restore-product" ||
+    key === "customer-genome/waiting-lists"
+  ) {
+    return <RestoreProduct />;
+  }
+  if (key === "customer-genome/restock-events" || key === "customer-genome/batch-preview") {
+    return <RestockEvents />;
+  }
+  if (key.startsWith("customer-genome/restock-events/") && key.endsWith("/preview")) {
+    return <BatchPreview eventId={key.split("/")[2]} />;
+  }
   return (
     <Screen
       title={screen.title}
-      description="Live data from the Xenovarients API."
+      description="Live data from the XenoDesk API."
       endpoint={screen.endpoint}
       blocked={screen.blocked}
       list={Boolean(screen.endpoint)}

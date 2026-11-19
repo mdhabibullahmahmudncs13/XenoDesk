@@ -2,7 +2,7 @@ import "../styles/globals.css";
 import { AppShell } from "../components/AppShell";
 
 export const metadata = {
-  title: "Xenovarients",
+  title: "XenoDesk",
   description: "Customer understanding and creator commerce workspace",
 };
 

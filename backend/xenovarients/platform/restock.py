@@ -54,9 +54,18 @@ CHANNEL_ORDER = ("email", "sms", "messenger", "whatsapp")
 # The merge fields a template may use (RP-05).
 MERGE_FIELDS = ("customer_name", "request_date", "product_name", "business_name")
 
-# RP-09: a restock message must never imply the stock is held for the reader. Template
-# save-time validation has no save path yet (no template CRUD), so it runs at preview.
+# RP-09: a restock message must never imply the stock is held for the reader. It is
+# checked when a template is saved and again at preview.
 RESERVATION_PHRASES = ("reserved", "reservation", "set aside", "held for you", "guaranteed")
+
+# The template the batch uses until the owner writes their own (RP-05).
+TEMPLATE_KEY = "restock"
+DEFAULT_TEMPLATE_BODY = (
+    "Hi {{customer_name}},\n\n"
+    "You asked us about {{product_name}} on {{request_date}}. "
+    "Good news: it is back in stock at {{business_name}}. "
+    "Reply or visit us soon, as stock may be limited."
+)
 
 MAX_GROUPS = 100
 
@@ -711,6 +720,168 @@ async def _identity_links(
         select(MessagingIdentityLink).where(MessagingIdentityLink.business_id == business_id)
     )
     return {(row.customer_id, row.channel): row.channel_user_id for row in result.scalars().all()}
+
+
+@dataclass(frozen=True)
+class RestockEventSummary:
+    """One restock event as the owner's list shows it."""
+
+    event_id: uuid.UUID
+    product_id: uuid.UUID
+    product_name: str
+    variant_id: uuid.UUID
+    variant_name: str
+    detected_at: datetime
+    stock_after: int
+    waiting_count: int
+    batch_count: int
+    last_batch_at: datetime | None
+
+
+async def restock_events(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    limit: int = 25,
+    product_id: uuid.UUID | None = None,
+) -> list[RestockEventSummary]:
+    """The detected restocks, newest first, with their waiting demand.
+
+    A restock event means nothing was sent (RP-04). ``batch_count`` says whether an
+    owner has already confirmed a batch for it, so the list can show that honestly.
+    """
+    conditions = [RestockEvent.business_id == business_id]
+    if product_id is not None:
+        conditions.append(RestockEvent.product_id == product_id)
+
+    rows = (
+        await session.execute(
+            select(RestockEvent, Product.name, ProductVariant.name)
+            .join(Product, Product.id == RestockEvent.product_id)
+            .join(ProductVariant, ProductVariant.id == RestockEvent.variant_id)
+            .where(*conditions)
+            .order_by(RestockEvent.detected_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    if not rows:
+        return []
+
+    event_ids = [row[0].id for row in rows]
+    variant_ids = [row[0].variant_id for row in rows]
+
+    counts = dict(
+        (
+            await session.execute(
+                select(ProductInterest.variant_id, func.count(ProductInterest.id))
+                .where(
+                    ProductInterest.business_id == business_id,
+                    ProductInterest.variant_id.in_(variant_ids),
+                )
+                .group_by(ProductInterest.variant_id)
+            )
+        ).all()
+    )
+    batches = {
+        row[0]: (int(row[1]), row[2])
+        for row in (
+            await session.execute(
+                select(
+                    RestockBatch.restock_event_id,
+                    func.count(RestockBatch.id),
+                    func.max(RestockBatch.approved_at),
+                )
+                .where(
+                    RestockBatch.business_id == business_id,
+                    RestockBatch.restock_event_id.in_(event_ids),
+                )
+                .group_by(RestockBatch.restock_event_id)
+            )
+        ).all()
+    }
+
+    return [
+        RestockEventSummary(
+            event_id=event.id,
+            product_id=event.product_id,
+            product_name=product_name,
+            variant_id=event.variant_id,
+            variant_name=variant_name,
+            detected_at=event.detected_at,
+            stock_after=event.stock_after,
+            waiting_count=int(counts.get(event.variant_id, 0)),
+            batch_count=batches.get(event.id, (0, None))[0],
+            last_batch_at=batches.get(event.id, (0, None))[1],
+        )
+        for event, product_name, variant_name in rows
+    ]
+
+
+async def active_template(
+    session: AsyncSession, *, business_id: uuid.UUID
+) -> MessageTemplate | None:
+    """The business's active restock template, if it has one."""
+    return await session.scalar(
+        select(MessageTemplate)
+        .where(
+            MessageTemplate.business_id == business_id,
+            MessageTemplate.key == TEMPLATE_KEY,
+            MessageTemplate.is_active.is_(True),
+        )
+        .order_by(MessageTemplate.version.desc())
+    )
+
+
+async def set_template(
+    session: AsyncSession, *, business_id: uuid.UUID, body: str
+) -> MessageTemplate:
+    """Store a new version of the restock template (RP-05).
+
+    The previous version is deactivated, never edited: a batch records the version it
+    sent, so changing the words later must not rewrite history. Saving the same body
+    again is a no-op rather than a new version.
+    """
+    validate_template(body)
+    current = await active_template(session, business_id=business_id)
+    if current is not None and current.body == body:
+        return current
+
+    if current is not None:
+        current.is_active = False
+
+    row = MessageTemplate(
+        business_id=business_id,
+        key=TEMPLATE_KEY,
+        locale="en",
+        body=body,
+        version=(current.version + 1) if current is not None else 1,
+        is_active=True,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def template_for_preview(
+    session: AsyncSession, *, business_id: uuid.UUID
+) -> MessageTemplate:
+    """The template a preview renders with, without writing anything.
+
+    When no template has been saved, a transient row carrying the default body is
+    returned; it is never added to the session, so previewing cannot create a
+    template as a side effect.
+    """
+    current = await active_template(session, business_id=business_id)
+    if current is not None:
+        return current
+    return MessageTemplate(
+        business_id=business_id,
+        key=TEMPLATE_KEY,
+        locale="en",
+        body=DEFAULT_TEMPLATE_BODY,
+        version=1,
+        is_active=True,
+    )
 
 
 async def _inventory_pages(source: CustomerOrderSource) -> AsyncIterator[Any]:

@@ -1,6 +1,6 @@
 # Product Requirements Document (PRD)
 
-**Project:** Xenovarients — Customer Genome · Creator Commerce · Agent Workspace
+**Project:** XenoDesk — Customer Genome · Creator Commerce · Agent Workspace
 **Version:** 1.0 (derived from Master Project Documentation v3.0, 16 November 2026)
 **Status:** Module scope approved. Items tagged **RECOMMENDED** or **OPEN** need owner confirmation before build.
 **Audience:** Product owner, developers, architects, QA, marketing stakeholders

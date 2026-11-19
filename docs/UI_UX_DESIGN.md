@@ -1,6 +1,6 @@
 # UI/UX Design Document
 
-**Project:** Xenovarients — Customer Genome · Creator Commerce · Agent Workspace
+**Project:** XenoDesk — Customer Genome · Creator Commerce · Agent Workspace
 **Version:** 1.0 (derived from Master Project Documentation v3.0, 16 November 2026)
 **Audience:** Product, Design, Front-end developers, QA, Stitch prompt operators
 
@@ -8,7 +8,7 @@
 
 ## 1. Purpose
 
-This document specifies the complete user interface for Xenovarients: the design system, **every screen and page** the product contains, the states each screen must handle, and a **ready-to-paste Google Stitch prompt for every page**.
+This document specifies the complete user interface for XenoDesk: the design system, **every screen and page** the product contains, the states each screen must handle, and a **ready-to-paste Google Stitch prompt for every page**.
 
 **How to use the Stitch prompts**
 
@@ -20,7 +20,7 @@ This document specifies the complete user interface for Xenovarients: the design
    - `MOBILE` for the responsive variants marked **M** in the screen tables.
 5. Regenerate a screen with `edit_screens` when a screen's Stitch output needs correction, using the "Refinement" line at the end of each prompt.
 
-> **Note on the existing `Desigen.md`** — that file documents the *Figma marketing site* design system (pastel color blocks, `figmaSans`, pill buttons). It is a **different product surface** and does not describe this dashboard. This document defines the SaaS design system for Xenovarients. If the marketing site style is wanted for a public landing page later, it can be reused as a separate theme — but the app screens below are built on the system defined here.
+> **Note on the existing `Desigen.md`** — that file documents the *Figma marketing site* design system (pastel color blocks, `figmaSans`, pill buttons). It is a **different product surface** and does not describe this dashboard. This document defines the SaaS design system for XenoDesk. If the marketing site style is wanted for a public landing page later, it can be reused as a separate theme — but the app screens below are built on the system defined here.
 
 ---
 
@@ -98,7 +98,7 @@ Per the spec's sidebar positions:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  ◆ Xenovarients          [business switcher ▾]      │
+│  ◆ XenoDesk          [business switcher ▾]      │
 ├─────────────────────────────────────────────────────┤
 │  ▣ Dashboard                              S-01      │
 │                                                      │
@@ -428,13 +428,13 @@ flowchart TD
 ### Stitch Prompt — S-21 Sign In
 
 ```
-Design a desktop sign-in page for a B2B SaaS dashboard product called "Xenovarients".
+Design a desktop sign-in page for a B2B SaaS dashboard product called "XenoDesk".
 
 Layout: a centered 440px wide sign-in form on a white card, floating on a soft light-grey background
 (#F6F8FB). The card has white fill, 1px border #E3E8EF, 14px corner radius, no heavy shadow.
 
 Top of card: a 28px square dark navy logo mark (#0B1220) with white "X" glyph, then the wordmark
-"Xenovarients" in 20px semibold #0F1622. Below it a 14px grey line of body copy: "Know your
+"XenoDesk" in 20px semibold #0F1622. Below it a 14px grey line of body copy: "Know your
 customers, market with evidence, and get unstuck quickly."
 
 Form fields stacked with 16px gaps, each 40px tall, 10px radius, 1px border #CFD6E0, 12px horizontal
@@ -448,7 +448,7 @@ blue text link "Forgot password?".
 Then a full-width primary button, 40px tall, 10px radius, dark navy #0B1220 fill with white text
 "Sign in".
 
-Below that, centered 14px copy: "New to Xenovarients?" followed by a blue link "Create an account".
+Below that, centered 14px copy: "New to XenoDesk?" followed by a blue link "Create an account".
 
 Below the card, a small centered trust strip in 12px grey text separated by a middle dot:
 "Tenant-isolated data · Consent-first messaging · No data sold".
@@ -474,7 +474,7 @@ Responsive: on mobile the card goes full-width with 20px side margins and fills 
 ### Stitch Prompt — S-22 Sign Up
 
 ```
-Design a desktop sign-up page for a B2B SaaS product called "Xenovarients".
+Design a desktop sign-up page for a B2B SaaS product called "XenoDesk".
 
 Layout: a 480px wide white card centered on a #F6F8FB background, 1px border #E3E8EF, 14px radius.
 
@@ -482,7 +482,7 @@ At the very top inside the card, a horizontal 3-step progress indicator with sma
 by thin lines: step 1 "Business" is a filled dark navy circle, steps 2 "Owner account" and 3 "Done" are
 outlined grey circles. Small 12px labels underneath each.
 
-Below: a dark navy 28px logo mark with "X" glyph, "Xenovarients" 20px semibold, and 14px grey
+Below: a dark navy 28px logo mark with "X" glyph, "XenoDesk" 20px semibold, and 14px grey
 subtitle "Create your business workspace".
 
 Form fields with 16px gaps, 40px tall, 10px radius, 1px #CFD6E0 border, 12px uppercase semibold labels:
@@ -539,13 +539,13 @@ flowchart TD
 ### Stitch Prompt — S-01 Main Dashboard
 
 ```
-Design a desktop dashboard for a B2B SaaS product called "Xenovarients" — a customer intelligence
+Design a desktop dashboard for a B2B SaaS product called "XenoDesk" — a customer intelligence
 and marketing tool for online sellers.
 
 Overall shell: a fixed 260px left sidebar in white with a 1px right border #E3E8EF, a 64px top bar,
 and a light grey page background #F6F8FB with white content cards.
 
-Sidebar: dark navy #0B1220 logo square with "X" and wordmark "Xenovarients" at top, then a business
+Sidebar: dark navy #0B1220 logo square with "X" and wordmark "XenoDesk" at top, then a business
 switcher row showing "Rokomari BD" with a chevron. Nav items in 14px #475467 with small outline icons:
 "▣ Dashboard" (active, with a 3px dark navy left bar and #0F1622 bold text), then grouped section
 headers in 11px uppercase grey: "CUSTOMER GENOME" with items "Repeat Buyers & History" and
@@ -603,7 +603,7 @@ gradients, no illustrations, minimal shadows (cards use borders, not drop shadow
 Design a desktop "Repeat Buyers" list page for a B2B SaaS customer intelligence product.
 
 Shell: 260px white left sidebar with 1px right border, 64px top bar, page background #F6F8FB.
-Sidebar shows a dark navy logo square "X" with "Xenovarients", a business switcher "Rokomari BD", and
+Sidebar shows a dark navy logo square "X" with "XenoDesk", a business switcher "Rokomari BD", and
 nav items with "Repeat Buyers & History" highlighted as active (dark navy 3px left bar, bold #0F1622
 text). The rest of the nav groups mirror: Customer Genome (Returning Bubbles with red badge, Restore
 Product), Creator Commerce (Review, Meta Ads Intelligence, My Ads Performance, Collaboration Finder),
@@ -653,7 +653,7 @@ illustrations, no gradients.
 Design a desktop "Customer History" profile page for a B2B SaaS customer intelligence product.
 
 Shell: 260px white sidebar with 1px right border, 64px top bar, #F6F8FB page background. Sidebar
-has the dark navy "X" logo and "Xenovarients", business switcher "Rokomari BD", and nav with "Repeat
+has the dark navy "X" logo and "XenoDesk", business switcher "Rokomari BD", and nav with "Repeat
 Buyers & History" active (dark navy left bar, bold text). Other groups: Customer Genome, Creator
 Commerce, Agent Workspace, plus Notifications and Settings.
 
@@ -1788,7 +1788,7 @@ Generate in this order so later screens inherit a consistent visual language.
 
 | Step | Action | Output |
 |---|---|---|
-| 1 | `create_project` titled `Xenovarients Dashboard` | Project container |
+| 1 | `create_project` titled `XenoDesk Dashboard` | Project container |
 | 2 | `create_design_system` — see §12.2 | `assetId` for reuse |
 | 3 | Generate **S-01 Main Dashboard** first | Locks the shell (sidebar + top bar + card + table style) |
 | 4 | Generate the remaining pages in module order, passing the same `designSystem` id | 24 pages |
@@ -1800,7 +1800,7 @@ Generate in this order so later screens inherit a consistent visual language.
 
 | Field | Value |
 |---|---|
-| `displayName` | Xenovarients Dashboard |
+| `displayName` | XenoDesk Dashboard |
 | `theme.headlineFont` | `INTER` |
 | `theme.bodyFont` | `INTER` |
 | `theme.labelFont` | `INTER` |
@@ -1817,7 +1817,7 @@ Generate in this order so later screens inherit a consistent visual language.
 **designMd content:**
 
 ```markdown
-# Xenovarients Dashboard Design System
+# XenoDesk Dashboard Design System
 
 ## Product
 B2B SaaS dashboard for customer intelligence and marketing. Dense, calm, professional. The user works
@@ -1879,14 +1879,14 @@ in this tool all day, so information density and scanability beat decoration.
 
 ```jsonc
 // 1. Create the project
-{ "tool": "create_project", "params": { "title": "Xenovarients Dashboard" } }
+{ "tool": "create_project", "params": { "title": "XenoDesk Dashboard" } }
 
 // 2. Create the design system (returns assetId)
 { "tool": "create_design_system",
   "params": {
     "projectId": "<PROJECT_ID>",
     "designSystem": {
-      "displayName": "Xenovarients Dashboard",
+      "displayName": "XenoDesk Dashboard",
       "theme": {
         "headlineFont": "INTER", "bodyFont": "INTER", "labelFont": "INTER",
         "customColor": "#16233D", "colorMode": "LIGHT", "colorVariant": "FIDELITY",

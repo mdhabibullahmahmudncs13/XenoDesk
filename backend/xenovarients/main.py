@@ -31,7 +31,7 @@ def create_app() -> FastAPI:
     configure_logging(settings.log_level)
 
     app = FastAPI(
-        title="Xenovarients API",
+        title="XenoDesk API",
         version="0.1.0",
         description=(
             "Customer Genome · Creator Commerce · Agent Workspace. "

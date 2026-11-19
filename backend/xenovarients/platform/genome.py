@@ -17,10 +17,16 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from xenovarients.models.customer import Customer, CustomerOrder, OrderItem
+from xenovarients.models.customer import (
+    Customer,
+    CustomerOrder,
+    OrderItem,
+    Product,
+    ProductVariant,
+)
 from xenovarients.platform.sync import load_rules
 
 # The thresholds. Named, because the difference between them is the whole point.
@@ -367,3 +373,175 @@ async def _items_for(
 def repeat_buyer_threshold() -> int:
     """The Repeat Buyers threshold, from the rule set rather than a literal."""
     return max(REPEAT_BUYER_MIN_ORDERS, load_rules().repeat_buyer_min_orders)
+
+
+@dataclass(frozen=True)
+class DirectoryEntry:
+    """One customer in the searchable directory.
+
+    Every customer is listed, not only repeat buyers: staff need to reach a
+    first-time buyer to add them to a waiting list, and the history page is where
+    their (possibly empty) timeline lives.
+    """
+
+    customer_id: uuid.UUID
+    name: str | None
+    phone_e164: str | None
+    email_normalised: str | None
+    order_count: int
+    total_spend: Decimal
+    currency: str
+    last_purchase_at: datetime | None
+
+    @property
+    def is_repeat_buyer(self) -> bool:
+        return self.order_count >= REPEAT_BUYER_MIN_ORDERS
+
+
+async def customer_directory(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    query: str | None = None,
+    limit: int = 25,
+) -> tuple[list[DirectoryEntry], bool]:
+    """Search customers by name, phone or normalised email (CG-03).
+
+    The figures come from the same derived join as the Repeat Buyers list, so a
+    customer's order count here matches the list and the bubble card.
+    """
+    conditions = [Customer.business_id == business_id]
+    if query and query.strip():
+        needle = f"%{query.strip()}%"
+        conditions.append(
+            func.coalesce(Customer.name, "").ilike(needle)
+            | func.coalesce(Customer.phone_e164, "").ilike(needle)
+            | func.coalesce(Customer.email_normalised, "").ilike(needle)
+        )
+
+    rows = (
+        await session.execute(
+            select(
+                Customer.id,
+                Customer.name,
+                Customer.phone_e164,
+                Customer.email_normalised,
+                func.count(CustomerOrder.id),
+                func.coalesce(
+                    func.sum(CustomerOrder.total_amount - CustomerOrder.refund_amount), 0
+                ),
+                func.max(CustomerOrder.ordered_at),
+                func.max(CustomerOrder.currency),
+            )
+            .outerjoin(
+                CustomerOrder,
+                and_(
+                    CustomerOrder.customer_id == Customer.id,
+                    CustomerOrder.qualifying.is_(True),
+                ),
+            )
+            .where(*conditions)
+            .group_by(Customer.id)
+            .order_by(func.max(CustomerOrder.ordered_at).desc().nulls_last(), Customer.name)
+            .limit(limit + 1)
+        )
+    ).all()
+
+    has_more = len(rows) > limit
+    entries = [
+        DirectoryEntry(
+            customer_id=row[0],
+            name=row[1],
+            phone_e164=row[2],
+            email_normalised=row[3],
+            order_count=int(row[4] or 0),
+            total_spend=Decimal(str(row[5] or 0)).quantize(Decimal("0.01")),
+            last_purchase_at=row[6],
+            currency=row[7] or "BDT",
+        )
+        for row in rows[:limit]
+    ]
+    return entries, has_more
+
+
+@dataclass(frozen=True)
+class CatalogueVariant:
+    """One product variant, as the waiting-list form needs it."""
+
+    variant_id: uuid.UUID
+    name: str
+    is_available: bool
+    stock_on_hand: int
+
+
+@dataclass(frozen=True)
+class CatalogueProduct:
+    """One product with its variants (RP-02: interest is per variant)."""
+
+    product_id: uuid.UUID
+    name: str
+    category: str | None
+    variants: tuple[CatalogueVariant, ...]
+
+
+async def product_catalogue(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    query: str | None = None,
+    limit: int = 50,
+) -> list[CatalogueProduct]:
+    """The products and variants staff can add a customer to (RP-02)."""
+    conditions = [Product.business_id == business_id]
+    if query and query.strip():
+        conditions.append(Product.name.ilike(f"%{query.strip()}%"))
+
+    rows = (
+        await session.execute(
+            select(
+                Product.id,
+                Product.name,
+                Product.category,
+                ProductVariant.id,
+                ProductVariant.name,
+                ProductVariant.is_available,
+                ProductVariant.stock_on_hand,
+            )
+            .outerjoin(
+                ProductVariant,
+                and_(
+                    ProductVariant.product_id == Product.id,
+                    ProductVariant.business_id == business_id,
+                ),
+            )
+            .where(*conditions)
+            .order_by(Product.name, ProductVariant.name)
+            .limit(limit * 20)
+        )
+    ).all()
+
+    products: dict[uuid.UUID, dict[str, Any]] = {}
+    for product_id, product_name, category, variant_id, variant_name, available, stock in rows:
+        entry = products.setdefault(
+            product_id,
+            {"name": product_name, "category": category, "variants": []},
+        )
+        if variant_id is not None:
+            entry["variants"].append(
+                CatalogueVariant(
+                    variant_id=variant_id,
+                    name=variant_name,
+                    is_available=bool(available),
+                    stock_on_hand=int(stock or 0),
+                )
+            )
+
+    return [
+        CatalogueProduct(
+            product_id=product_id,
+            name=entry["name"],
+            category=entry["category"],
+            variants=tuple(entry["variants"]),
+        )
+        for product_id, entry in list(products.items())[:limit]
+    ]

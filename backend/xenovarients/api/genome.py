@@ -19,8 +19,10 @@ from xenovarients.api.pagination import Page
 from xenovarients.models.customer import Customer
 from xenovarients.models.messaging import IdentityMethod
 from xenovarients.platform.genome import (
+    customer_directory,
     customer_figures,
     customer_history,
+    product_catalogue,
     repeat_buyers,
 )
 from xenovarients.platform.identity import link
@@ -79,6 +81,113 @@ class CustomerHistoryOut(BaseModel):
     items: list[HistoryEntryOut] = []
     next_cursor: str | None = None
     has_more: bool = False
+
+
+class DirectoryCustomerOut(BaseModel):
+    """One customer in the searchable directory."""
+
+    id: str
+    name: str | None = None
+    phone_e164: str | None = None
+    email_normalised: str | None = None
+    order_count: int
+    total_spend: str
+    currency: str
+    last_purchase_at: str | None = None
+    is_repeat_buyer: bool
+    history_url: str
+
+
+class DirectoryOut(BaseModel):
+    items: list[DirectoryCustomerOut]
+    has_more: bool = False
+
+
+@router.get("/customer-genome/customers")
+async def search_customers(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_tenant_session),
+    q: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> DirectoryOut:
+    """Search this business's customers by name, phone or email.
+
+    Every customer is searchable, not only repeat buyers, so staff can open a
+    history or add a first-time buyer to a waiting list.
+    """
+    entries, has_more = await customer_directory(
+        session, business_id=principal.business_id, query=q, limit=limit
+    )
+    return DirectoryOut(
+        items=[
+            DirectoryCustomerOut(
+                id=str(entry.customer_id),
+                name=entry.name,
+                phone_e164=entry.phone_e164,
+                email_normalised=entry.email_normalised,
+                order_count=entry.order_count,
+                total_spend=str(entry.total_spend),
+                currency=entry.currency,
+                last_purchase_at=(
+                    entry.last_purchase_at.isoformat() if entry.last_purchase_at else None
+                ),
+                is_repeat_buyer=entry.is_repeat_buyer,
+                history_url=f"/customer-genome/history?customer_id={entry.customer_id}",
+            )
+            for entry in entries
+        ],
+        has_more=has_more,
+    )
+
+
+class CatalogueVariantOut(BaseModel):
+    id: str
+    name: str
+    is_available: bool
+    stock_on_hand: int
+
+
+class CatalogueProductOut(BaseModel):
+    id: str
+    name: str
+    category: str | None = None
+    variants: list[CatalogueVariantOut] = []
+
+
+class CatalogueOut(BaseModel):
+    items: list[CatalogueProductOut] = []
+
+
+@router.get("/customer-genome/products")
+async def list_products(
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_tenant_session),
+    q: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> CatalogueOut:
+    """Products and their variants — the waiting-list form's choices (RP-02)."""
+    products = await product_catalogue(
+        session, business_id=principal.business_id, query=q, limit=limit
+    )
+    return CatalogueOut(
+        items=[
+            CatalogueProductOut(
+                id=str(product.product_id),
+                name=product.name,
+                category=product.category,
+                variants=[
+                    CatalogueVariantOut(
+                        id=str(variant.variant_id),
+                        name=variant.name,
+                        is_available=variant.is_available,
+                        stock_on_hand=variant.stock_on_hand,
+                    )
+                    for variant in product.variants
+                ],
+            )
+            for product in products
+        ]
+    )
 
 
 class LinkIdentityRequest(BaseModel):

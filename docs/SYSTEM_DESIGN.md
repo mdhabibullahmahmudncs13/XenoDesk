@@ -1,12 +1,12 @@
-# Xenovarients System Design
+# XenoDesk System Design
 
-**Project:** Xenovarients — Customer Genome · Creator Commerce · Agent Workspace  
+**Project:** XenoDesk — Customer Genome · Creator Commerce · Agent Workspace  
 **Audience:** Developers, architects, DevOps engineers, and reviewers  
 **Status:** Living design document
 
 ## 1. System Purpose
 
-Xenovarients is a multi-tenant business workspace. It combines:
+XenoDesk is a multi-tenant business workspace. It combines:
 
 - **Sourcing Workspace** for product research, sourcing, and carts.
 - **Customer Genome** for customer history, repeat buyers, messaging bubbles, and product-restock workflows.

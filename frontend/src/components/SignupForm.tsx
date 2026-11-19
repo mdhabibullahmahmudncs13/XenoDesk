@@ -39,49 +39,58 @@ export function SignupForm() {
 
   return (
     <section className="auth-card" aria-labelledby="signup-title">
-      <p className="eyebrow">XENOVARIENTS</p>
+      <p className="eyebrow">XENODESK</p>
       <h1 id="signup-title">Create your workspace</h1>
       <p className="muted">The account creator becomes the business owner.</p>
       <form onSubmit={submit} className="auth-form">
-        <label htmlFor="signup-business">Business name</label>
-        <input id="signup-business" name="organization" required autoComplete="organization" value={values.business_name} onChange={(event) => setValues({ ...values, business_name: event.target.value })} />
-        <label htmlFor="signup-name">Your name</label>
-        <input id="signup-name" name="name" required autoComplete="name" value={values.name} onChange={(event) => setValues({ ...values, name: event.target.value })} />
-        <label htmlFor="signup-email">Email</label>
-        <input
-          id="signup-email"
-          name="email"
-          required
-          autoComplete="username"
-          spellCheck={false}
-          type="email"
-          value={values.email}
-          aria-invalid={emailInvalid}
-          onBlur={() => setEmailTouched(true)}
-          onChange={(event) => setValues({ ...values, email: event.target.value })}
-        />
-        <label htmlFor="signup-password">Password</label>
-        <div className="password-field">
-          <input
-            id="signup-password"
-            name="password"
-            required
-            autoComplete="new-password"
-            minLength={8}
-            type={passwordVisible ? "text" : "password"}
-            value={values.password}
-            onChange={(event) => setValues({ ...values, password: event.target.value })}
-          />
-          <button
-            className="password-toggle"
-            type="button"
-            aria-pressed={passwordVisible}
-            onClick={() => setPasswordVisible((visible) => !visible)}
-          >
-            {passwordVisible ? "Hide" : "Show"}
-          </button>
+        <div className="auth-field">
+          <label htmlFor="signup-business">Business name</label>
+          <input id="signup-business" name="organization" required autoComplete="organization" value={values.business_name} onChange={(event) => setValues({ ...values, business_name: event.target.value })} />
         </div>
-        <button disabled={busy} type="submit">{busy ? "Creating…" : "Create workspace"}</button>
+        <div className="auth-field">
+          <label htmlFor="signup-name">Your name</label>
+          <input id="signup-name" name="name" required autoComplete="name" value={values.name} onChange={(event) => setValues({ ...values, name: event.target.value })} />
+        </div>
+        <div className="auth-field">
+          <label htmlFor="signup-email">Email</label>
+          <input
+            id="signup-email"
+            name="email"
+            required
+            autoComplete="username"
+            spellCheck={false}
+            type="email"
+            value={values.email}
+            aria-invalid={emailInvalid}
+            onBlur={() => setEmailTouched(true)}
+            onChange={(event) => setValues({ ...values, email: event.target.value })}
+          />
+        </div>
+        <div className="auth-field">
+          <label htmlFor="signup-password">Password</label>
+          <div className="password-field">
+            <input
+              id="signup-password"
+              name="password"
+              required
+              autoComplete="new-password"
+              minLength={8}
+              type={passwordVisible ? "text" : "password"}
+              value={values.password}
+              onChange={(event) => setValues({ ...values, password: event.target.value })}
+            />
+            <button
+              className="auth-toggle"
+              type="button"
+              aria-pressed={passwordVisible}
+              aria-label={passwordVisible ? "Hide password" : "Show password"}
+              onClick={() => setPasswordVisible((visible) => !visible)}
+            >
+              {passwordVisible ? "Hide" : "Show"}
+            </button>
+          </div>
+        </div>
+        <button className="auth-submit" disabled={busy} type="submit">{busy ? "Creating…" : "Create workspace"}</button>
       </form>
       {message && <p className="error-text" role="alert">{message}</p>}
     </section>

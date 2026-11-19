@@ -1,6 +1,6 @@
 # Development Plan
 
-**Project:** Xenovarients — Customer Genome · Creator Commerce · Agent Workspace
+**Project:** XenoDesk — Customer Genome · Creator Commerce · Agent Workspace
 **Version:** 1.0 · **Date:** 17 November 2026
 **Strategy:** Backend first, frontend second. Every frontend screen is a thin view over an API that already exists and is tested.
 
@@ -187,7 +187,7 @@ docs/
 | 3.9 | Live figures recomputed from authoritative history, with `data_as_of` | CG-09 | ✅ `platform/genome.py` — `customer_figures` reads the qualifying orders at read time; the bubble card carries the same numbers plus `data_as_of` |
 | 3.10 | `product_interests`, waiting-list grouping by product **and** variant | RP-02, RP-03 | ✅ `platform/restock.py` + `api/restock.py`. Grouping happens in SQL on `(product_id, variant_id)`, so two variants of one product are two lists with two counts, never one merged list. Adding an interest checks the variant really belongs to the product |
 | 3.11 | Restock detection worker: unavailable → available transition → `restock_events` + owner notification, **no send path** | RP-04 | ✅ `platform/restock.py::detect_restocks` + the `restock_detection` job handler. It reads the stored mirror *before* `sync_inventory` refreshes it, and the unique `(business, variant, source_ref)` makes a re-run of the same poll silent. A test asserts the function's source contains no call to the outbound gateway |
-| 3.12 | Batch preview: recipients, channel per recipient, eligibility, skip reasons, stock warning, template merge preview | RP-05…RP-07, RP-09 | ✅ `preview()`. One row per waiting customer with the channel chosen (email → SMS → Messenger/WhatsApp), the merged message, the eligibility decision and its reason, plus the stock warning with the numbers. RP-09's reservation-language check runs at preview: template CRUD does not exist yet, so there is no save-time hook to reject it earlier |
+| 3.12 | Batch preview: recipients, channel per recipient, eligibility, skip reasons, stock warning, template merge preview | RP-05…RP-07, RP-09 | ✅ `preview()`. One row per waiting customer with the channel chosen (email → SMS → Messenger/WhatsApp), the merged message, the eligibility decision and its reason, plus the stock warning with the numbers. RP-09's reservation-language check runs at preview, and `PUT /restock-template` rejects such a template at save time too |
 | 3.13 | Owner-confirmed batch: `POST .../notifications` with `Idempotency-Key`; creates `restock_batches` + `outbound_messages`; **skips ineligible recipients** | RP-07, RP-08 | ✅ `confirm_batch()`. Owner-only, requires the header, queues eligible recipients only and stores an ineligible one as `skipped` with its reason. The per-recipient key is `sha256(business + event + interest + channel)`, so a second confirmation cannot create a second message even with a different header |
 | 3.14 | Delivery history read endpoint | RP-10 | ✅ `GET /api/customer-genome/restocks/{eventId}/notifications` — per recipient: state, skip reason, attempt count, provider id, sent and delivered timestamps |
 
@@ -283,8 +283,8 @@ frontend/
 | 6.5 | State patterns: loading skeleton, empty, error, stale, unresolved — **all five** on every list screen | 6.4 | ✅ `frontend/src/components/Screen.tsx`; loading, empty, error, live, and blocked states |
 | 6.6 | S-21, S-22 Auth | Phase 1 | ✅ sign-in, signup, token storage, `/me` guard, role-aware navigation, and sign-out |
 | 6.7 | S-01 Dashboard | Phase 3 | ✅ live notifications-backed dashboard state |
-| 6.8 | S-02, S-03 + M-01, M-02 | Phase 3 | ✅ live repeat-buyer, customer-history, and restore-product views; restock action workflows remain |
-| 6.9 | S-04, S-05, S-06, S-07 | Phase 3 |
+| 6.8 | S-02, S-03 + M-01, M-02 | Phase 3 | ✅ live repeat-buyer and customer-history views, and the returning-customer bubble overlay; bubble and history links are wired |
+| 6.9 | S-04, S-05, S-06, S-07 | Phase 3 | ✅ live Restore Product (staff customer search + waiting lists by product/variant), restock events, and batch preview & confirm with delivery history and the versioned message template |
 | 6.10 | S-08, S-09, S-10, S-11, S-12 | Phase 4 | ✅ live review library, settings, export, and card data views |
 | 6.11 | S-13, S-14, S-15, S-15b | Phase 4 | ⏸ dedicated review detail/card actions remain |
 | 6.12 | S-16 Chat + floating launcher | Phase 5 | ✅ real session creation and read-only chat messages |
@@ -295,8 +295,11 @@ frontend/
 
 **Release 1 work now in progress:** real sign-in/signup, authenticated API requests, role
 guards, dedicated live data views, an authenticated SSE bubble stream with REST refresh
-fallback, interactive tour progress, and Agent Workspace chat are implemented. The remaining
-Release 1 frontend work is the dedicated detail/action workflows for the full screen set.
+fallback, interactive tour progress, and Agent Workspace chat are implemented. All seven
+Customer Genome screens (S-02…S-07, M-01, M-02) render real API data, including the
+owner-confirmed restock batch and template editing. The remaining Release 1 frontend work
+is the review detail/card action workflows; the ads, collaboration and influencer screens
+stay blocked behind their deferred backend features.
 
 ### 9.3 The Bubble component
 
@@ -311,7 +314,7 @@ The single most important frontend piece. It must:
 
 ### 9.4 Exit criteria
 
-- [ ] All 28 screens from `UI_UX_DESIGN.md` render **real** API data. Release 1 routes now render live data or an explicit blocked state; dedicated detail/action workflows remain.
+- [ ] All 28 screens from `UI_UX_DESIGN.md` render **real** API data. Release 1 routes now render live data or an explicit blocked state; Customer Genome (S-02…S-07) is fully wired, while the review detail/card actions remain and the deferred ads/collaboration screens stay explicitly blocked.
 - [ ] No mock in the production build (grep for fixtures in `src/`).
 - [x] Every current live list screen implements loading, empty, error, stale and unresolved/unavailable states.
 - [ ] Every "unknown" value renders the grey `unavailable-chip`, never a blank or a zero.

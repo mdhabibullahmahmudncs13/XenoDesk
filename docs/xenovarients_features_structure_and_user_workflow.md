@@ -1,4 +1,4 @@
-# Xenovarients – Features, Structure and User Workflow
+# XenoDesk – Features, Structure and User Workflow
 
 **Version 3.1** · 18 November 2026 · *Summary of the master project documentation*
 
@@ -6,7 +6,7 @@
 
 ## 1. Product Overview
 
-Xenovarients is one project that combines the sourcing workspace and the customer and marketing platform. It helps a business find and source products, know its customers, market with evidence, and get unstuck quickly. Four modules share one dashboard, one customer identity layer, and one messaging layer, and they come in this order:
+XenoDesk is one project that combines the sourcing workspace and the customer and marketing platform. It helps a business find and source products, know its customers, market with evidence, and get unstuck quickly. Four modules share one dashboard, one customer identity layer, and one messaging layer, and they come in this order:
 
 1. **Module 1 – Sourcing Workspace:** Takes a business from a product idea to a supplier shortlist: Dashboard, Onboarding, Market Intelligence, Product Search, Cart.
 2. **Module 2 – Customer Genome:** Turns order history into customer understanding. Shows returning buyers the moment they message and wins back customers waiting for out-of-stock products.

@@ -48,7 +48,7 @@ export function Screen({ title, description, endpoint, blocked, list }: Props) {
     <section className="screen" aria-labelledby="screen-title">
       <div className="screen-heading">
         <div>
-          <p className="eyebrow">XENOVARIENTS</p>
+          <p className="eyebrow">XENODESK</p>
           <h1 id="screen-title">{title}</h1>
           <p className="muted">{description}</p>
         </div>

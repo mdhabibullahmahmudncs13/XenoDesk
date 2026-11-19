@@ -4,14 +4,14 @@ export function LandingPage() {
   return (
     <main className="landing-page">
       <nav className="landing-nav" aria-label="Public navigation">
-        <Link className="brand" href="/">XENOVARIENTS</Link>
+        <Link className="brand" href="/">XENODESK</Link>
         <Link className="landing-signin" href="/login">Sign in</Link>
       </nav>
       <section className="landing-hero" aria-labelledby="landing-title">
         <p className="eyebrow">CUSTOMER UNDERSTANDING · CREATOR COMMERCE · AGENT WORKSPACE</p>
         <h1 id="landing-title">Know your customers. Act with confidence.</h1>
         <p className="landing-lede">
-          Xenovarients brings customer history, consent-aware reviews, and a read-only
+          XenoDesk brings customer history, consent-aware reviews, and a read-only
           business assistant into one workspace.
         </p>
         <div className="landing-actions">

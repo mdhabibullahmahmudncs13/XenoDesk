@@ -25,6 +25,7 @@ const groups = [
     links: [
       { label: "Repeat buyers", href: "/customer-genome/repeat-buyers" },
       { label: "Restore product", href: "/customer-genome/product-interests" },
+      { label: "Restock events", href: "/customer-genome/restock-events" },
     ],
   },
   {
@@ -92,7 +93,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
       )}
       <aside id="primary-navigation" className={menuOpen ? "sidebar open" : "sidebar"} aria-label="Primary navigation">
         <Link className="brand" href="/">
-          XENOVARIENTS
+          XENODESK
         </Link>
         <nav>
           {groups.map((group) => (
@@ -112,8 +113,10 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
             </section>
           ))}
         </nav>
-        <Link className="settings-link" href="/settings/profile">Profile settings</Link>
-        {canManage && <Link className="settings-link" href="/settings">Admin settings</Link>}
+        <div className="sidebar-footer">
+          <Link className="settings-link" href="/settings/profile">Profile settings</Link>
+          {canManage && <Link className="settings-link" href="/settings">Admin settings</Link>}
+        </div>
       </aside>
       <main className="main-region">
         <header className="topbar">
