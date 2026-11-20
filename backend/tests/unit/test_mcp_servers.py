@@ -1,19 +1,42 @@
 """The read-only MCP contract.
 
-These tests hold the parts that must not drift: the six server names and eighteen tool
-names, that no tool takes a tenant, that no tool is a write, and that a missing value is
-reported as missing rather than as zero. They need no database — the DB-backed behaviour
-is covered by the integration suite.
+These tests hold the parts that must not drift: the seven server names and twenty-three
+tool names, that no tool takes a tenant, that no tool is a write, and that a missing value
+is reported as missing rather than as zero. They need no database — the DB-backed
+behaviour is covered by the integration suite.
 """
 
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
+from xenovarients.core.config import get_settings
+from xenovarients.platform.mcp import external
 from xenovarients.platform.mcp.app import SERVERS, create_mcp_app, mcp_lifespan
 from xenovarients.platform.mcp.faq_server import ENV_BUSINESS_ID, _business_id
 from xenovarients.platform.mcp.faq_server import server as faq_server
 from xenovarients.platform.mcp.shared import ToolError, not_found, result, unavailable
+
+EXTERNAL_ENV = (
+    "MCP_OUTBOUND_GATEWAY_URL",
+    "MCP_OUTBOUND_GATEWAY_TOKEN",
+    "MCP_DEMAND_SIGNAL_URL",
+    "MCP_DEMAND_SIGNAL_TOKEN",
+    "MCP_SOCIAL_LISTENING_URL",
+    "MCP_SOCIAL_LISTENING_TOKEN",
+    "MCP_ANALYTICS_EXPORT_URL",
+    "MCP_ANALYTICS_EXPORT_TOKEN",
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_external_sources_configured(monkeypatch):
+    """Integration is opt-in; a stray .env must not change what these tests assert."""
+    for name in EXTERNAL_ENV:
+        monkeypatch.setenv(name, "")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 EXPECTED_TOOLS = {
     "customer_genome": {
@@ -28,15 +51,23 @@ EXPECTED_TOOLS = {
         "list_restock_events",
         "preview_batch",
         "check_eligibility",
+        "list_sendable_batches",
+        "get_batch_status",
     },
-    "reviews": {"list_reviews", "review_consent", "preview_card"},
+    "reviews": {
+        "list_reviews",
+        "review_consent",
+        "preview_card",
+        "get_social_sentiment",
+    },
     "meta_ads": {"search_ads", "get_ad_details", "rank_ads"},
-    "sourcing": {"get_market_prices", "refresh_demand"},
+    "sourcing": {"get_market_prices", "refresh_demand", "get_enriched_demand"},
+    "analytics": {"export_snapshot"},
     "faq": {"match_faq"},
 }
 
 
-async def test_six_servers_expose_the_eighteen_tools():
+async def test_every_server_exposes_its_documented_tools():
     names = {server.name for server in SERVERS} | {faq_server.name}
     assert names == set(EXPECTED_TOOLS)
 
@@ -45,7 +76,7 @@ async def test_six_servers_expose_the_eighteen_tools():
         registered[server.name] = {tool.name for tool in await server.list_tools()}
 
     assert registered == EXPECTED_TOOLS
-    assert sum(len(tools) for tools in registered.values()) == 18
+    assert sum(len(tools) for tools in registered.values()) == 23
 
 
 async def test_no_tool_accepts_a_tenant_argument():
@@ -96,6 +127,37 @@ def test_faq_requires_the_tenant_from_the_environment(monkeypatch):
     monkeypatch.setenv(ENV_BUSINESS_ID, "not-a-uuid")
     with pytest.raises(ToolError):
         _business_id()
+
+
+def test_an_unconfigured_external_capability_explains_itself():
+    panel = external.status("demand_signal")
+    assert panel["available"] is False
+    assert panel["reason"] == "not_configured"
+    assert panel["capability"] == "demand_signal"
+    assert "MCP_DEMAND_SIGNAL_URL" in panel["detail"]
+    assert "token" not in panel
+
+
+async def test_an_unconfigured_source_makes_no_request():
+    payload = await external.call("social_listening", "get_sentiment", {"keyword": "x"})
+    assert payload == {**external.status("social_listening"), "tool": "get_sentiment"}
+    assert payload["available"] is False
+
+
+async def test_a_third_party_write_tool_is_out_of_reach(monkeypatch):
+    """The allowlist is checked before connecting: the URL here answers nothing."""
+    monkeypatch.setenv("MCP_ANALYTICS_EXPORT_URL", "http://127.0.0.1:9/mcp")
+    get_settings.cache_clear()
+
+    payload = await external.call("analytics_export", "drop_table", {})
+    assert payload["available"] is False
+    assert payload["reason"] == "tool_not_allowed"
+    assert "export_snapshot" in payload["detail"]
+
+
+def test_an_unknown_capability_is_a_programming_error():
+    with pytest.raises(ValueError):
+        external.capability("not_a_source")
 
 
 def _client() -> TestClient:

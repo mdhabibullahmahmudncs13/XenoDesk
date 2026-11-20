@@ -65,8 +65,8 @@ Prepares Restore Product batch details for the chat: waiting lists, restock even
 - **Transport:** HTTP/SSE
 - **Language/SDK:** Python / `mcp[http]`
 - **Purpose (1–2 lines):** The LLM can tell a customer their preferred items are back in stock and who qualifies, using real stock and eligibility data.
-- **Tool count:** 4
-- **Exact tools:** `list_waiting_lists`, `list_restock_events`, `preview_batch`, `check_eligibility`
+- **Tool count:** 6
+- **Exact tools:** `list_waiting_lists`, `list_restock_events`, `preview_batch`, `check_eligibility`, `list_sendable_batches`, `get_batch_status`
 - **Maps to:** `api/restock.py`, `models/restock.py`, `models/product_interest`.
 - **Where it lives:** `backend/xenovarients/platform/mcp/restock/server.py`
 
@@ -77,8 +77,8 @@ Exposes review consent state and verbatim reviews for the chat, and previews mar
 - **Transport:** HTTP/SSE
 - **Language/SDK:** Python / `mcp[http]`
 - **Purpose (1–2 lines):** The LLM can summarise a customer's review history or draft a card from verbatim words, respecting consent (RV-09/RV-10/RV-12).
-- **Tool count:** 3
-- **Exact tools:** `list_reviews`, `review_consent`, `preview_card`
+- **Tool count:** 4
+- **Exact tools:** `list_reviews`, `review_consent`, `preview_card`, `get_social_sentiment`
 - **Maps to:** `api/reviews.py`, `models/review.py`, consent-state fields.
 - **Where it lives:** `backend/xenovarients/platform/mcp/reviews/server.py`
 
@@ -101,8 +101,8 @@ Free, keyless market-intelligence data for the chat: demand trends and Daraz pri
 - **Transport:** HTTP/SSE
 - **Language/SDK:** Python / `mcp[http]`
 - **Purpose (1–2 lines):** Answers "what's the price band and demand trend for X in Bangladesh" from the existing free sources into chat.
-- **Tool count:** 2
-- **Exact tools:** `get_market_prices`, `refresh_demand`
+- **Tool count:** 3
+- **Exact tools:** `get_market_prices`, `refresh_demand`, `get_enriched_demand`
 - **Maps to:** `api/sourcing.py`, `platform/market/metrics.py`, `platform/market/trends.py`.
 - **Where it lives:** `backend/xenovarients/platform/mcp/sourcing/server.py`
 
@@ -118,6 +118,18 @@ A thin helper the IDE/agent runs locally. It doesn't touch the data tier; it jus
 - **Maps to:** `api/workspace.py`, `models/workspace.py` (`FaqEntry`, `FaqAlias`).
 - **Where it lives:** `backend/xenovarients/platform/mcp/faq_server.py`
 
+### 4.7 `analytics_mcp` — Export-shaped snapshots
+
+Returns a snapshot of Customer Genome, Market Intelligence or ad intelligence for export, and reports where an export would go. It builds the snapshot and never pushes it: writing to a destination stays an owner-confirmed action.
+
+- **Transport:** HTTP/SSE
+- **Language/SDK:** Python / `mcp[http]`
+- **Purpose (1–2 lines):** Answer "what would we export?" from real rows, without writing to a third-party destination.
+- **Tool count:** 1
+- **Exact tools:** `export_snapshot`
+- **Maps to:** `models/customer.py`, `models/restock.py`, `models/sourcing.py`, `models/ads.py`.
+- **Where it lives:** `backend/xenovarients/platform/mcp/analytics/server.py`
+
 > To make this a full MCP server (not stdio-only) use `mcp[http]` with a stdio transport; the tool functions stay identical, only the transport wiring changes.
 
 ---
@@ -127,13 +139,14 @@ A thin helper the IDE/agent runs locally. It doesn't touch the data tier; it jus
 | Server name | Endpoints/tools | Transport | Language/SDK | Purpose (1–2 sentences) | Tool names |
 |---|---|---|---|---|---|
 | `customer_genome_mcp` | 5 | HTTP/SSE | Python / `mcp[http]` | Reads customer-history, repeat-buyer, and bubble facts for the chat. | `get_customer_history`, `list_repeat_buyers`, `get_returning_bubbles`, `link_identity`, `resolve_customer` |
-| `restock_mcp` | 4 | HTTP/SSE | Python / `mcp[http]` | Prepares Restore Product batch details and eligibility for the chat without sending. | `list_waiting_lists`, `list_restock_events`, `preview_batch`, `check_eligibility` |
-| `review_mcp` | 3 | HTTP/SSE | Python / `mcp[http]` | Exposes review consent state and verbatim reviews so the LLM can draft cards and answer review-history questions. | `list_reviews`, `review_consent`, `preview_card` |
+| `restock_mcp` | 6 | HTTP/SSE | Python / `mcp[http]` | Prepares Restore Product batch details and eligibility for the chat without sending, plus the delivery status of confirmed batches. | `list_waiting_lists`, `list_restock_events`, `preview_batch`, `check_eligibility`, `list_sendable_batches`, `get_batch_status` |
+| `review_mcp` | 4 | HTTP/SSE | Python / `mcp[http]` | Exposes review consent state and verbatim reviews so the LLM can draft cards and answer review-history questions, with optional public sentiment context. | `list_reviews`, `review_consent`, `preview_card`, `get_social_sentiment` |
 | `meta_ad_mcp` | 3 | HTTP/SSE | Python / `mcp[http]` | Returns ranking-tagged competitor/own-ad insight following the tier model and no-invented-data rule. | `search_ads`, `get_ad_details`, `rank_ads` |
-| `sourcing_mcp` | 2 | HTTP/SSE | Python / `mcp[http]` | Exposes free market-intelligence figures read-only into chat. | `get_market_prices`, `refresh_demand` |
+| `sourcing_mcp` | 3 | HTTP/SSE | Python / `mcp[http]` | Exposes free market-intelligence figures read-only into chat, with an optional second demand source. | `get_market_prices`, `refresh_demand`, `get_enriched_demand` |
+| `analytics_mcp` | 1 | HTTP/SSE | Python / `mcp[http]` | Builds export-shaped snapshots of genome, sourcing and ads without writing to a destination. | `export_snapshot` |
 | `faq_mcp` (stdio) | 1 | stdio | Python / `mcp[http]` | Zero-token FAQ routing so common questions never reach the LLM. | `match_faq` |
 
-**Totals:** 6 servers · 18 tools · 5 × HTTP/SSE + 1 × stdio · 5 × Python/`mcp[http]` + 1 × Python/`mcp[http]`-stdio.
+**Totals:** 7 servers · 23 tools · 6 × HTTP/SSE + 1 × stdio · 6 × Python/`mcp[http]` + 1 × Python/`mcp[http]`-stdio.
 
 ---
 

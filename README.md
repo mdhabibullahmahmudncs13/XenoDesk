@@ -125,19 +125,61 @@ xenovarients-worker
 Sign in through `localhost`, not `127.0.0.1` — tokens live in `localStorage` and the
 origin must stay stable.
 
+## Docker (full stack)
+
+The whole project also runs in containers. Secrets still come from `backend/.env` —
+the container URLs (Postgres, Redis, Mongo, Ollama) are set in `docker-compose.yml`.
+
+```bash
+docker compose --profile app up -d --build
+```
+
+- frontend <http://localhost:3000>, API <http://localhost:8001/api/docs>
+- `api` — `docker compose --profile app logs -f api`; it runs `alembic upgrade head` on
+  start, so the schema and the `xenovarients_app` role exist before it serves traffic.
+- `worker` — the job scheduler; starts only once the API healthcheck passes, so two
+  containers never migrate at the same time.
+- `frontend` — standalone Next.js build (`output: "standalone"`), non-root, port 3000.
+
+Without a profile, `docker compose up -d` still starts only the infrastructure services
+used by the local Python/Node workflow.
+
+`NEXT_PUBLIC_API_BASE` is inlined into the browser bundle at build time, so rebuild the
+frontend image after changing where the API lives:
+
+```bash
+NEXT_PUBLIC_API_BASE=https://api.example.com docker compose --profile app build frontend
+docker compose --profile app up -d frontend
+```
+
+Images are `backend/Dockerfile` (API and worker share it) and `frontend/Dockerfile`.
+Neither terminates TLS; put a reverse proxy in front of ports 8001 and 3000 for a real
+deployment, and keep `backend/.env` out of the image (it is in `.dockerignore`).
+
 ## MCP servers
 
-The six read-only MCP servers are an optional extra: `pip install -e ".[mcp]"`. Without
-it the API is unchanged; with it, five of them are mounted inside the API process at
-`/mcp/<server>` — `customer_genome`, `restock`, `reviews`, `meta_ads`, `sourcing` — over
-Streamable HTTP, using the same `Authorization: Bearer …` and `X-Business-Id` headers
-as the API. The sixth runs over stdio and takes its tenant from the environment:
+The seven read-only MCP servers are an optional extra: `pip install -e ".[mcp]"`. Without
+it the API is unchanged; with it, six of them are mounted inside the API process at
+`/mcp/<server>` — `customer_genome`, `restock`, `reviews`, `meta_ads`, `sourcing`,
+`analytics` — over Streamable HTTP, using the same `Authorization: Bearer …` and
+`X-Business-Id` headers as the API. The seventh runs over stdio and takes its tenant
+from the environment:
 
 ```bash
 XENODESK_BUSINESS_ID=<business uuid> python -m xenovarients.platform.mcp.faq_server
 ```
 
 Every tool is read-only: they preview, compute or report, and never write.
+
+Four tools can add an **optional** third-party MCP source on top of the local answer:
+`list_sendable_batches`/`get_batch_status` (outbound gateway),
+`get_enriched_demand` (demand signal), `get_social_sentiment` (social listening) and
+`export_snapshot` (export destination). Each is disabled until its URL is set
+(`MCP_<SOURCE>_URL` in `backend/.env`); while unconfigured the tool answers
+`available: false` with `reason: "not_configured"` and the local data is unchanged.
+`export_snapshot` builds the snapshot but never pushes it — writing to a destination
+stays an owner action. See
+[`docs/future implementation/future-mcp-plan.md`](docs/future%20implementation/future-mcp-plan.md).
 
 ## Configuration
 

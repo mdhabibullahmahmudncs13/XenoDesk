@@ -5,21 +5,23 @@ tool can say exactly what a confirmation *would* do; the confirmation itself sta
 owner-only, idempotent HTTP endpoint.
 """
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from mcp.server.mcpserver import Context
 from sqlalchemy import func, select
 
-from xenovarients.models.customer import Customer
+from xenovarients.models.customer import Customer, Product, ProductVariant
 from xenovarients.models.messaging import (
     ContactPermission,
     InboundMessageEvent,
     MessagingIdentityLink,
 )
-from xenovarients.models.outbound import MessageTemplate
-from xenovarients.models.restock import RestockEvent
+from xenovarients.models.outbound import MessageTemplate, OutboundMessage, OutboundPurpose
+from xenovarients.models.restock import RestockBatch, RestockEvent
 from xenovarients.platform import eligibility, identity, restock
+from xenovarients.platform.mcp import external
 from xenovarients.platform.mcp.shared import (
     authenticate,
     build_server,
@@ -325,6 +327,163 @@ async def check_eligibility(
             "has_contact_value": bool(contact_value),
         },
     )
+
+
+@read_only(server)
+async def list_sendable_batches(
+    ctx: Context,
+    limit: int = 25,
+) -> dict[str, Any]:
+    """Owner-confirmed restock batches, newest first, with what is still unsent.
+
+    ``sendable_count`` is the number of messages still pending — the ones a gateway could
+    dispatch. Nothing is sent from here, and skipped messages stay in the counts: the
+    delivery log is also the record of who was *not* contacted.
+    """
+    principal = await authenticate(ctx)
+    capped = min(max(limit, 1), 100)
+
+    async with tenant_session(principal.business_id) as session:
+        rows = (
+            await session.execute(
+                select(RestockBatch, Product.name)
+                .join(RestockEvent, RestockEvent.id == RestockBatch.restock_event_id)
+                .join(Product, Product.id == RestockEvent.product_id)
+                .where(RestockBatch.business_id == principal.business_id)
+                .order_by(RestockBatch.approved_at.desc())
+                .limit(capped)
+            )
+        ).all()
+
+        counts: dict[uuid.UUID, dict[str, int]] = {}
+        if rows:
+            batch_ids = [batch.id for batch, _ in rows]
+            status_rows = await session.execute(
+                select(
+                    OutboundMessage.ref_id,
+                    OutboundMessage.status,
+                    func.count(OutboundMessage.id),
+                )
+                .where(
+                    OutboundMessage.business_id == principal.business_id,
+                    OutboundMessage.purpose == OutboundPurpose.restock.value,
+                    OutboundMessage.ref_id.in_(batch_ids),
+                )
+                .group_by(OutboundMessage.ref_id, OutboundMessage.status)
+            )
+            for ref_id, status, count in status_rows.all():
+                counts.setdefault(ref_id, {})[status] = int(count)
+
+        batches = [
+            {
+                "batch_id": str(batch.id),
+                "restock_event_id": str(batch.restock_event_id),
+                "product_name": product_name,
+                "approved_at": iso(batch.approved_at),
+                "state": batch.state,
+                "template_version": batch.template_version,
+                "recipient_count": batch.recipient_count,
+                "skipped_count": batch.skipped_count,
+                "messages": counts.get(batch.id, {}),
+                "sendable_count": counts.get(batch.id, {}).get("pending", 0),
+            }
+            for batch, product_name in rows
+        ]
+
+    return result(
+        batches=batches,
+        sendable_batches=sum(1 for batch in batches if batch["sendable_count"] > 0),
+        gateway=external.status("outbound_gateway"),
+        truncated=len(rows) == capped,
+    )
+
+
+@read_only(server)
+async def get_batch_status(
+    ctx: Context,
+    batch_id: str,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """One confirmed batch: every message, its status and skip reason, and the gateway's view.
+
+    The local delivery log is authoritative for what this platform queued. The ``gateway``
+    panel adds a provider's own status only when one is configured; otherwise it says
+    ``available: false`` with the reason. A batch outside this business is not found.
+    """
+    principal = await authenticate(ctx)
+    identifier = parse_uuid(batch_id, kind="batch_id")
+    capped = min(max(limit, 1), 500)
+
+    async with tenant_session(principal.business_id) as session:
+        row = (
+            await session.execute(
+                select(RestockBatch, Product.name, ProductVariant.name)
+                .join(RestockEvent, RestockEvent.id == RestockBatch.restock_event_id)
+                .join(Product, Product.id == RestockEvent.product_id)
+                .join(ProductVariant, ProductVariant.id == RestockEvent.variant_id)
+                .where(
+                    RestockBatch.business_id == principal.business_id,
+                    RestockBatch.id == identifier,
+                )
+            )
+        ).first()
+        if row is None:
+            return not_found("restock batch", identifier)
+
+        batch, product_name, variant_name = row
+        message_rows = (
+            await session.execute(
+                select(OutboundMessage, Customer.name)
+                .join(Customer, Customer.id == OutboundMessage.customer_id)
+                .where(
+                    OutboundMessage.business_id == principal.business_id,
+                    OutboundMessage.purpose == OutboundPurpose.restock.value,
+                    OutboundMessage.ref_id == identifier,
+                )
+                .order_by(OutboundMessage.created_at)
+                .limit(capped)
+            )
+        ).all()
+
+        counts: dict[str, int] = {}
+        messages = []
+        for message, customer_name in message_rows:
+            counts[message.status] = counts.get(message.status, 0) + 1
+            messages.append(
+                {
+                    "outbound_message_id": str(message.id),
+                    "customer_id": str(message.customer_id),
+                    "customer_name": customer_name,
+                    "channel": message.channel,
+                    "status": message.status,
+                    "skip_reason": message.skip_reason,
+                    "provider_message_id": message.provider_message_id,
+                    "attempt_count": message.attempt_count,
+                    "queued_at": iso(message.created_at),
+                    "sent_at": iso(message.sent_at),
+                    "delivered_at": iso(message.delivered_at),
+                }
+            )
+
+        payload = {
+            "batch_id": str(batch.id),
+            "restock_event_id": str(batch.restock_event_id),
+            "product_name": product_name,
+            "variant_name": variant_name,
+            "approved_at": iso(batch.approved_at),
+            "state": batch.state,
+            "template_version": batch.template_version,
+            "recipient_count": batch.recipient_count,
+            "skipped_count": batch.skipped_count,
+            "status_counts": counts,
+            "messages": messages,
+            "truncated": len(message_rows) == capped,
+        }
+
+    gateway = await external.call(
+        "outbound_gateway", "get_batch_status", {"batch_id": str(identifier)}
+    )
+    return result(**payload, gateway=gateway)
 
 
 def _contact_value(

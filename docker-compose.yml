@@ -1,3 +1,27 @@
+# Infrastructure for local development, plus the app itself behind the `app` profile.
+#
+#   docker compose up -d                      # Postgres, Redis, Mongo, MailHog, Ollama
+#   docker compose --profile app up -d --build # the above + API, worker, frontend
+#
+# `backend/.env` supplies JWT_SECRET and any provider keys; the values below point the
+# services at the other containers instead of localhost.
+
+# Shared by api and worker: the container hostnames and ports, not the host-mapped ones.
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+asyncpg://xenovarients_app:xenovarients_app@postgres:5432/xenovarients
+  MIGRATION_DATABASE_URL: postgresql+asyncpg://xenovarients:xenovarients@postgres:5432/xenovarients
+  REDIS_URL: redis://redis:6379/0
+  MONGO_URI: mongodb://mongo:27017
+  OLLAMA_BASE_URL: http://ollama:11434
+  QDRANT_URL: http://qdrant:6333
+
+x-app-env-file: &app-env-file
+  - path: ./backend/.env
+    required: false
+
+x-app-build: &app-build
+  context: ./backend
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -57,6 +81,60 @@ services:
       - "6333:6333"
     volumes:
       - qdrantdata:/qdrant/storage
+
+  api:
+    profiles: ["app"]
+    build: *app-build
+    env_file: *app-env-file
+    environment:
+      <<: *app-environment
+      RUN_MIGRATIONS: "true"
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3).status == 200 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    profiles: ["app"]
+    build: *app-build
+    env_file: *app-env-file
+    environment: *app-environment
+    command: ["xenovarients-worker"]
+    # The API owns migrations; waiting for it to be healthy means the schema exists.
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+      args:
+        # Baked into the browser bundle, so it must be the origin the browser can reach.
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8001}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata:

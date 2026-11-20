@@ -18,13 +18,21 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.routing import Mount
 
+from xenovarients.platform.mcp.analytics.server import server as analytics
 from xenovarients.platform.mcp.customer_genome.server import server as customer_genome
 from xenovarients.platform.mcp.meta_ads.server import server as meta_ads
 from xenovarients.platform.mcp.restock.server import server as restock
 from xenovarients.platform.mcp.reviews.server import server as reviews
 from xenovarients.platform.mcp.sourcing.server import server as sourcing
 
-SERVERS: tuple[MCPServer, ...] = (customer_genome, restock, reviews, meta_ads, sourcing)
+SERVERS: tuple[MCPServer, ...] = (
+    customer_genome,
+    restock,
+    reviews,
+    meta_ads,
+    sourcing,
+    analytics,
+)
 
 MCP_PREFIX = "/mcp"
 

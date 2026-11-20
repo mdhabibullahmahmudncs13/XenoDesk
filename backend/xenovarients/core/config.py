@@ -60,6 +60,18 @@ class Settings(BaseSettings):
     # --- Webhook signature verification ---
     webhook_timestamp_tolerance_seconds: int = 300
 
+    # --- Optional third-party MCP capabilities ---
+    # Unset means "not integrated": the matching tool reports available: false with a
+    # reason instead of inventing a value. See docs/future implementation/future-mcp-plan.md.
+    mcp_outbound_gateway_url: str | None = None
+    mcp_outbound_gateway_token: str | None = None
+    mcp_demand_signal_url: str | None = None
+    mcp_demand_signal_token: str | None = None
+    mcp_social_listening_url: str | None = None
+    mcp_social_listening_token: str | None = None
+    mcp_analytics_export_url: str | None = None
+    mcp_analytics_export_token: str | None = None
+
     # --- Outbound delivery ---
     max_delivery_attempts: int = 3
     delivery_retry_base_seconds: int = 30

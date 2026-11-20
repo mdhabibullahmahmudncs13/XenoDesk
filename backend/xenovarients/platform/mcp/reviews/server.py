@@ -9,10 +9,11 @@ from datetime import datetime
 from typing import Any
 
 from mcp.server.mcpserver import Context
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from xenovarients.models.review import ReviewPermission, ReviewRequest
+from xenovarients.models.review import ReviewPermission, ReviewReply, ReviewRequest
 from xenovarients.platform import reviews
+from xenovarients.platform.mcp import external
 from xenovarients.platform.mcp.shared import (
     authenticate,
     build_server,
@@ -169,3 +170,67 @@ async def preview_card(
         )
 
     return result(**preview)
+
+
+@read_only(server)
+async def get_social_sentiment(
+    ctx: Context,
+    keyword: str,
+    limit: int = 25,
+) -> dict[str, Any]:
+    """Public sentiment for a keyword or brand, beside the reviews this business captured.
+
+    ``external`` is the third-party listening source's answer, or ``available: false``
+    with the reason when none is configured. ``captured`` counts this business's own
+    replies mentioning the keyword and how many of those may be quoted
+    (``approved``/``anonymous`` consent), so public noise is never confused with a
+    customer's own words.
+    """
+    principal = await authenticate(ctx)
+    needle = keyword.strip()
+    if not needle:
+        return result(
+            available=False,
+            field="social_sentiment",
+            reason="no_keyword",
+            detail="Pass a brand or product keyword.",
+        )
+
+    async with tenant_session(principal.business_id) as session:
+        matching = (
+            await session.scalar(
+                select(func.count(ReviewReply.id)).where(
+                    ReviewReply.business_id == principal.business_id,
+                    ReviewReply.content.ilike(f"%{needle}%"),
+                )
+            )
+            or 0
+        )
+        quotable = (
+            await session.scalar(
+                select(func.count(ReviewReply.id))
+                .join(
+                    ReviewPermission,
+                    ReviewPermission.review_request_id == ReviewReply.review_request_id,
+                )
+                .where(
+                    ReviewReply.business_id == principal.business_id,
+                    ReviewPermission.business_id == principal.business_id,
+                    ReviewReply.content.ilike(f"%{needle}%"),
+                    ReviewPermission.state.in_(("approved", "anonymous")),
+                )
+            )
+            or 0
+        )
+
+    return result(
+        keyword=needle,
+        external=await external.call(
+            "social_listening", "get_sentiment", {"keyword": needle, "limit": limit}
+        ),
+        captured={"matching_reviews": int(matching), "quotable_reviews": int(quotable)},
+        note=(
+            "Captured reviews are this business's own replies. Only approved or anonymous "
+            "ones may be published; the external panel is public context, not consent."
+        ),
+    )

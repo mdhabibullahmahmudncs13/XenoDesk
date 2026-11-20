@@ -2,7 +2,7 @@
 
 **Project:** XenoDesk — Customer Genome · Creator Commerce · Agent Workspace
 **Place:** `docs/future implementation/`
-**Status:** planning stage — recommendations mapped to existing custom MCP servers. Tool names/vendors are **to be verified** before the form's "MCP Servers Used" section is filled.
+**Status:** capability layer implemented (see §5a) — the four read-only tools exist, are mounted, and are unit-tested. **No third-party MCP server has been used yet**, so the form's "MCP Servers Used (third-party)" section is answered *none* in §8 and stays empty until a vendor is selected and its URL/token are configured (§5a, last bullet).
 **Audience:** engineers adding read-only third-party MCP servers that improve the agent workflow.
 
 These four recommendations extend the custom MCP servers already in `backend/xenovarients/platform/mcp/`. They are **third-party capability MCP servers**, not new XenoDesk modules, and they are optional on purpose (a missing SDK must never break the API, exactly as `[project.optional-dependencies].mcp` is designed).
@@ -13,7 +13,7 @@ These four recommendations extend the custom MCP servers already in `backend/xen
 
 Reused from `backend/xenovarients/platform/mcp/shared.py` — **no exceptions**:
 
-1. **Read-only for the LLM.** A third-party MCP call is a *tool* the agent may invoke, never a write. Real writes travel over the owner-confirmed FastAPI endpoints (`notifications.py`, `outbound.py`, `ads.py` admin paths), not through the MCP surface.
+1. **Read-only for the LLM.** A third-party MCP call is a *tool* the agent may invoke, never a write. Real writes travel over the owner-confirmed FastAPI endpoints (`notifications.py`, `outbound.py`, `ads.py` admin paths), not through the MCP surface. This is why `export_snapshot` (§5) *builds* a snapshot and reports the destination rather than pushing to it.
 2. **Tenant-scoped.** `business_id` must be re-derived on every call; a third-party MCP never accepts a tenant argument — it reads the tenant from headers/its own config and restricts to this business.
 3. **No invented data.** Missing values return explicit `found: false`, `available: false` with a reason — never a fabricated zero or placeholder.
 4. **Plan is the answer; confirm is the action.** A third-party MCP that would change state must instead *plan* the change and let the owner-confirmed endpoint execute it.
@@ -80,6 +80,25 @@ Reused from `backend/xenovarients/platform/mcp/shared.py` — **no exceptions**:
 
 ---
 
+## 5a. Implementation status
+
+Implemented in `backend/xenovarients/platform/mcp/`:
+
+| Capability | Tool(s) now exposed | Server | Behaviour without a vendor |
+|---|---|---|---|
+| Outbound messaging gateway | `list_sendable_batches`, `get_batch_status` | `restock` | Local delivery log is the answer; the `gateway` panel is `available: false, reason: "not_configured"`. |
+| Demand / product-discovery signal | `get_enriched_demand` | `sourcing` | Cached (or `refresh`-ed live) Google Trends demand is returned; `enrichment` is `available: false`. |
+| Review / social-listening | `get_social_sentiment` | `reviews` | Captured-review counts (matching / quotable) are returned; `external` is `available: false`. |
+| Analytics / export | `export_snapshot` | `analytics` (new server) | Snapshot of `genome`/`sourcing`/`ads` is returned; `persisted` is always false. |
+
+How it is wired:
+
+- `platform/mcp/external.py` is the only place that talks to a third-party MCP server. It connects over MCP Streamable HTTP using the already-pinned `mcp` 2.3.0 SDK client, so **no vendor SDK is installed and no optional dependency group is needed** until a vendor is chosen. If one ships a Python SDK, add it as its own extra at that point rather than folding it into `mcp`.
+- Each capability declares the tools it may be asked for. A tool outside that list is refused with `reason: "tool_not_allowed"` before any request, so a write tool on the third-party server is unreachable through XenoDesk.
+- A call is bounded to 10 s. Timeout, connection failure and a tool error are returned as panels with `reason: "timeout"`, `"source_unavailable"` or `"tool_error"`; none of them fail the local tool call.
+- Configuration is environment-only, empty by default: `MCP_OUTBOUND_GATEWAY_URL` / `_TOKEN`, `MCP_DEMAND_SIGNAL_URL` / `_TOKEN`, `MCP_SOCIAL_LISTENING_URL` / `_TOKEN`, `MCP_ANALYTICS_EXPORT_URL` / `_TOKEN`. See `backend/.env.example`. Tokens are never included in a tool's answer.
+- Still open: choosing the vendors, pointing the four URLs at them, verifying their real tool names against the allowlist, and filling in Section 2 below.
+
 ## 6. Recommended order
 
 1. **Outbound messaging gateway** — closes the preview→send loop; highest workflow impact; the gateway MCP adds read-only status tools while `restock_mcp` + `notifications.py`/`outbound.py` keep the confirmed sends.
@@ -89,12 +108,13 @@ Reused from `backend/xenovarients/platform/mcp/shared.py` — **no exceptions**:
 
 ## 7. Implementation checklist (per recommendation)
 
-- [ ] Map a read-only tool set matching the plan (no write tools).
-- [ ] Add the gateway/source client to a *new* optional dependency group in `backend/pyproject.toml` (`mcp[gateway]` etc.), keeping `mcp==2.3.0` separate.
-- [ ] Implement the tool against the plan; return `found: false`/`available: false` for missing data.
-- [ ] Add a unit test in `backend/tests/unit/test_mcp_servers.py` style (no DB needed).
-- [ ] Wire the client/config and document the `mcpServers` entry for the Agent Workspace.
-- [ ] Run `make lint` + `pytest tests/unit` in `backend/` to keep CI green.
+- [x] Map a read-only tool set matching the plan (no write tools).
+- [x] Add the gateway/source client (`platform/mcp/external.py`) — over the pinned MCP SDK, so no new dependency group is required yet. Add a vendor extra only if a chosen vendor ships an SDK.
+- [x] Implement the tool against the plan; return `found: false`/`available: false` for missing data.
+- [x] Add unit tests in `backend/tests/unit/test_mcp_servers.py` style (no DB needed).
+- [x] Wire the client/config (`core/config.py`, `backend/.env.example`) and keep every source disabled by default.
+- [ ] Document the `mcpServers` entry for the Agent Workspace once a vendor URL exists.
+- [x] Run `ruff check` + `pytest tests/unit` in `backend/` to keep CI green.
 
 ## 8. Submission-form answer key (copy from here once verified)
 
@@ -103,19 +123,34 @@ Reused from `backend/xenovarients/platform/mcp/shared.py` — **no exceptions**:
 | Server | Tools | Transport | Language/SDK | Purpose | Tool names |
 |---|---|---|---|---|---|
 | `customer_genome` | 5 | HTTP | Python / `mcp` 2.3.0 | Customer history, repeat buyers, bubbles, identity | `get_customer_history, list_repeat_buyers, get_returning_bubbles, link_identity, resolve_customer` |
-| `restock` | 4 | HTTP | Python / `mcp` 2.3.0 | Waiting lists, restock events, batch preview, eligibility | `list_waiting_lists, list_restock_events, preview_batch, check_eligibility` |
-| `reviews` | 3 | HTTP | Python / `mcp` 2.3.0 | Review consent, review library, card preview | `list_reviews, review_consent, preview_card` |
+| `restock` | 6 | HTTP | Python / `mcp` 2.3.0 | Waiting lists, restock events, batch preview, eligibility, queued-batch status | `list_waiting_lists, list_restock_events, preview_batch, check_eligibility, list_sendable_batches, get_batch_status` |
+| `reviews` | 4 | HTTP | Python / `mcp` 2.3.0 | Review consent, review library, card preview, public sentiment context | `list_reviews, review_consent, preview_card, get_social_sentiment` |
 | `meta_ads` | 3 | HTTP | Python / `mcp` 2.3.0 | Competitor/own ad intelligence | `search_ads, get_ad_details, rank_ads` |
-| `sourcing` | 2 | HTTP | Python / `mcp` 2.3.0 | Cached market intelligence + live demand refresh | `get_market_prices, refresh_demand` |
+| `sourcing` | 3 | HTTP | Python / `mcp` 2.3.0 | Cached market intelligence, live demand refresh, enriched demand | `get_market_prices, refresh_demand, get_enriched_demand` |
+| `analytics` | 1 | HTTP | Python / `mcp` 2.3.0 | Export-shaped snapshots of genome, sourcing and ads | `export_snapshot` |
 | `faq` | 1 | stdio | Python / `mcp` 2.3.0 | Zero-token FAQ routing | `match_faq` |
 
-### Section 2 — MCP Servers Used (third-party / planned)
+### Section 2 — MCP Servers Used (third-party)
 
-| Server | Source/Vendor | Endpoints actually called | Capabilities consumed | Called by / task |
+**Answer today: none.** No third-party MCP server has ever been contacted by this project. The four capabilities in §2–§5 exist as *clients* (`platform/mcp/external.py`) and their local tools are live, but every call reports `available: false, reason: "not_configured"` until a vendor URL and token are set — so there is no vendor name, no endpoint count and no traffic to claim. The guardrails in §1 rule out inventing one.
+
+Per field of the submission form (leave all five empty; do not click "Add server we used"):
+
+| Form field | What to enter | Why |
+|---|---|---|
+| Server name | — | No third-party server was called. |
+| Source / vendor | — | No vendor selected; the four URL settings are empty in `backend/.env.example`. |
+| # endpoints actually called | `0` | `external.call()` is the only outbound path and nobody has configured a URL to reach. |
+| Capabilities exposed | — | Nothing consumed from a third party; only the local tools in Section 1. |
+| How did you use it / which agent | — | The Agent Workspace chat calls only the seven custom servers in Section 1. |
+
+For reference, if a vendor is later chosen, the capability it would satisfy and the local tool that would reach it (these are *plans*, not usage):
+
+| Planned capability | Vendor | Endpoints a vendor would receive | Capabilities | Called by / task |
 |---|---|---|---|---|
-| **Outbound messaging gateway** | *to verify* | `list_sendable_batches`, `get_batch_status` (example names) | `tools` | Agent Workspace chat — send the approved restock batch end-to-end |
-| **Demand / product-discovery signal** | *to verify* | `get_enriched_demand` (example name) | `tools` | Agent Workspace chat — enrich sourcing demand answers |
-| **Review / social-listening** | *to verify* | `get_sentiment`, `list_social_mentions` (example names) | `tools` | Agent Workspace chat — contextualise review / product questions |
-| **Analytics/export** | *to verify* | `export_snapshot`, `export_insights` (example names) | `tools` | Agent Workspace chat — persist a snapshot to a BI destination |
+| Outbound messaging gateway | *to verify* | one or two read-only batch/status tools (vendor names TBD, added to the allowlist first) | `tools` | Agent Workspace chat — show the approved restock batch's send status |
+| Demand / product-discovery signal | *to verify* | one read-only demand/enrichment tool | `tools` | Agent Workspace chat — enrich sourcing demand answers |
+| Review / social-listening | *to verify* | one read-only sentiment/mention tool | `tools` | Agent Workspace chat — contextualise review / product questions |
+| Analytics/export | *to verify* | one read-only export tool — never called: `export_snapshot` only reports a destination, `persisted: false` | `tools` | Agent Workspace chat — propose a BI destination, not push to it |
 
-> These four are **proposed third-party capability MCP servers, not yet integrated.** Tool names and vendors above are placeholders to be replaced with verified third-party MCP server names once selected. Until then, Section 2 remains empty in the submitted tree.
+To turn a row into a real "used" entry: (1) pick the vendor, (2) set `MCP_*_URL` / `MCP_*_TOKEN` and confirm the vendor's real tool names against the allowlist in `external.py`, (3) call the local tool once against that URL, then (4) fill this section with the exact tool names that answered and the agent that invoked them. Until step 3 succeeds, the section stays empty.
