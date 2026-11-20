@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import exists, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.api.deps import Principal, get_tenant_session, require_admin
@@ -16,11 +16,11 @@ from xenovarients.models.review import (
     ReviewCard,
     ReviewPermission,
     ReviewReply,
-    ReviewReplyProduct,
     ReviewRequest,
     ReviewSettings,
 )
 from xenovarients.platform.audit import AuditAction, record
+from xenovarients.platform.reviews import review_library
 
 router = APIRouter(
     prefix="/api/v1/creator-commerce/reviews",
@@ -199,54 +199,29 @@ async def list_review_library(
     limit: int = Query(default=25, ge=1, le=100),
 ) -> ReviewLibraryOut:
     """Browse captured reviews with tenant-safe product, date, and consent filters."""
-    statement = (
-        select(ReviewReply, ReviewPermission.state)
-        .join(ReviewRequest, ReviewRequest.id == ReviewReply.review_request_id)
-        .outerjoin(
-            ReviewPermission,
-            ReviewPermission.review_request_id == ReviewRequest.id,
-        )
-        .where(
-            ReviewReply.business_id == principal.business_id,
-            ReviewRequest.business_id == principal.business_id,
-        )
-        .order_by(ReviewReply.received_at.desc())
-        .limit(limit + 1)
+    rows, has_more = await review_library(
+        session,
+        business_id=principal.business_id,
+        product_id=product_id,
+        customer_id=customer_id,
+        consent_state=consent_state,
+        since=since,
+        until=until,
+        limit=limit,
     )
-    if product_id is not None:
-        statement = statement.where(
-            exists(
-                select(ReviewReplyProduct.id).where(
-                    ReviewReplyProduct.review_reply_id == ReviewReply.id,
-                    ReviewReplyProduct.product_id == product_id,
-                    ReviewReplyProduct.business_id == principal.business_id,
-                )
-            )
-        )
-    if customer_id is not None:
-        statement = statement.where(ReviewReply.customer_id == customer_id)
-    if consent_state is not None:
-        statement = statement.where(ReviewPermission.state == consent_state)
-    if since is not None:
-        statement = statement.where(ReviewReply.received_at >= since)
-    if until is not None:
-        statement = statement.where(ReviewReply.received_at <= until)
-
-    rows = (await session.execute(statement)).all()
-    has_more = len(rows) > limit
     return ReviewLibraryOut(
         items=[
             ReviewLibraryItem(
-                review_request_id=reply.review_request_id,
-                reply_id=reply.id,
-                customer_id=reply.customer_id,
-                order_id=reply.order_id,
-                content=reply.content,
-                channel=reply.channel,
-                received_at=reply.received_at,
-                consent_state=state,
+                review_request_id=row.review_request_id,
+                reply_id=row.reply_id,
+                customer_id=row.customer_id,
+                order_id=row.order_id,
+                content=row.content,
+                channel=row.channel,
+                received_at=row.received_at,
+                consent_state=row.consent_state,
             )
-            for reply, state in rows[:limit]
+            for row in rows
         ],
         has_more=has_more,
     )

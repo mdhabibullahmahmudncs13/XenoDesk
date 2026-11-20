@@ -1,12 +1,14 @@
-"""Review request scheduling and delivery-confirmed order handling."""
+"""Review request scheduling, delivery-confirmed order handling and the review library."""
 
 import hashlib
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xenovarients.models.customer import Customer, CustomerOrder, OrderStatus
@@ -17,6 +19,7 @@ from xenovarients.models.review import (
     ReviewCard,
     ReviewPermission,
     ReviewReply,
+    ReviewReplyProduct,
     ReviewRequest,
     ReviewRequestState,
     ReviewSettings,
@@ -28,6 +31,86 @@ from xenovarients.platform.scheduler import schedule
 
 CONSENT_METHODS = {"reply_yes", "reply_anonymous", "reply_no", "manual"}
 CARD_TEMPLATES = {"v1"}
+
+
+@dataclass(frozen=True)
+class ReviewLibraryRow:
+    """One captured review in the library, with its consent state."""
+
+    review_request_id: uuid.UUID
+    reply_id: uuid.UUID
+    customer_id: uuid.UUID
+    order_id: uuid.UUID | None
+    content: str
+    channel: str
+    received_at: datetime
+    consent_state: str | None
+
+
+async def review_library(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    product_id: uuid.UUID | None = None,
+    customer_id: uuid.UUID | None = None,
+    consent_state: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    limit: int = 25,
+) -> tuple[list[ReviewLibraryRow], bool]:
+    """Browse captured reviews with tenant-safe product, date and consent filters.
+
+    Shared by the HTTP library endpoint and the read-only ``list_reviews`` MCP tool so
+    both see exactly the same rows.
+    """
+    statement = (
+        select(ReviewReply, ReviewPermission.state)
+        .join(ReviewRequest, ReviewRequest.id == ReviewReply.review_request_id)
+        .outerjoin(
+            ReviewPermission,
+            ReviewPermission.review_request_id == ReviewRequest.id,
+        )
+        .where(
+            ReviewReply.business_id == business_id,
+            ReviewRequest.business_id == business_id,
+        )
+        .order_by(ReviewReply.received_at.desc())
+        .limit(limit + 1)
+    )
+    if product_id is not None:
+        statement = statement.where(
+            exists(
+                select(ReviewReplyProduct.id).where(
+                    ReviewReplyProduct.review_reply_id == ReviewReply.id,
+                    ReviewReplyProduct.product_id == product_id,
+                    ReviewReplyProduct.business_id == business_id,
+                )
+            )
+        )
+    if customer_id is not None:
+        statement = statement.where(ReviewReply.customer_id == customer_id)
+    if consent_state is not None:
+        statement = statement.where(ReviewPermission.state == consent_state)
+    if since is not None:
+        statement = statement.where(ReviewReply.received_at >= since)
+    if until is not None:
+        statement = statement.where(ReviewReply.received_at <= until)
+
+    rows = (await session.execute(statement)).all()
+    has_more = len(rows) > limit
+    return [
+        ReviewLibraryRow(
+            review_request_id=reply.review_request_id,
+            reply_id=reply.id,
+            customer_id=reply.customer_id,
+            order_id=reply.order_id,
+            content=reply.content,
+            channel=reply.channel,
+            received_at=reply.received_at,
+            consent_state=state,
+        )
+        for reply, state in rows[:limit]
+    ], has_more
 
 
 async def create_review_card(
@@ -79,6 +162,65 @@ async def create_review_card(
     session.add(card)
     await session.flush()
     return card
+
+
+async def preview_review_card(
+    session: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    request: ReviewRequest,
+    template_version: str = "v1",
+) -> dict[str, Any]:
+    """What ``create_review_card`` would produce, without producing it.
+
+    The display text is the verbatim reply and the label is fixed, exactly as the card
+    would be stored — the words are never rewritten. ``persisted`` is always False: the
+    write belongs to the owner-confirmed endpoint, not to a read-only tool.
+    """
+    if template_version not in CARD_TEMPLATES:
+        raise ValueError("Unknown review card template.")
+    permission = await session.scalar(
+        select(ReviewPermission).where(
+            ReviewPermission.business_id == business_id,
+            ReviewPermission.review_request_id == request.id,
+        )
+    )
+    if permission is None or permission.state not in {
+        ConsentState.approved.value,
+        ConsentState.anonymous.value,
+    }:
+        raise ValueError("Review consent is required before creating a card.")
+    reply = (
+        await session.get(ReviewReply, permission.review_reply_id)
+        if permission.review_reply_id is not None
+        else None
+    )
+    if reply is None:
+        raise ValueError("The review reply does not exist.")
+    next_version = (
+        await session.scalar(
+            select(ReviewCard.version)
+            .where(
+                ReviewCard.business_id == business_id,
+                ReviewCard.review_request_id == request.id,
+            )
+            .order_by(ReviewCard.version.desc())
+            .limit(1)
+        )
+        or 0
+    ) + 1
+    return {
+        "review_request_id": str(request.id),
+        "review_reply_id": str(reply.id),
+        "version": next_version,
+        "display_text": reply.content,
+        "display_name": None,
+        "display_label": "Customer review",
+        "is_anonymous": permission.state == ConsentState.anonymous.value,
+        "template_version": template_version,
+        "consent_state": permission.state,
+        "persisted": False,
+    }
 
 
 async def set_review_permission(

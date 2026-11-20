@@ -38,9 +38,12 @@ class Principal:
         return self.role in roles
 
 
-async def get_current_user(
-    authorization: str | None = Header(default=None),
-) -> User:
+async def resolve_user(authorization: str | None) -> User:
+    """Turn a raw ``Authorization`` header into the user it names.
+
+    Kept separate from the dependency so the MCP servers can authenticate a tool call
+    from the request headers without going through FastAPI's injection.
+    """
     if not authorization:
         raise Unauthorized("Missing Authorization header.")
     scheme, _, token = authorization.partition(" ")
@@ -82,25 +85,29 @@ async def get_current_user(
     return user
 
 
-async def get_principal(
-    user: User = Depends(get_current_user),
-    x_business_id: str | None = Header(default=None, alias="X-Business-Id"),
-) -> Principal:
-    """Resolve the tenant for this request and the caller's role in it.
+async def get_current_user(
+    authorization: str | None = Header(default=None),
+) -> User:
+    return await resolve_user(authorization)
 
-    ``X-Business-Id`` may select a business the user belongs to (multi-tenant users).
-    If absent, the user's single membership is used. The role is always read from
-    ``business_memberships`` — never from the token, so a revoked role takes effect
-    immediately rather than at token expiry.
-    """
+
+async def _principal_for_user(user: User, x_business_id: str | None) -> Principal:
+    """The caller's role in the selected business."""
+    business_id = None
+    if x_business_id:
+        try:
+            business_id = uuid.UUID(x_business_id)
+        except ValueError as exc:
+            raise Forbidden("X-Business-Id is not a valid business id.") from exc
+
     async with SessionLocal() as session:
         install_tenant_filter(session)
         try:
             stmt = BusinessMembership.__table__.select().where(
                 BusinessMembership.user_id == user.id
             )
-            if x_business_id:
-                stmt = stmt.where(BusinessMembership.business_id == uuid.UUID(x_business_id))
+            if business_id is not None:
+                stmt = stmt.where(BusinessMembership.business_id == business_id)
             rows = (await session.execute(stmt)).mappings().all()
         finally:
             reset_tenant()
@@ -118,6 +125,34 @@ async def get_principal(
         business_id=row["business_id"],
         role=row["role"],
     )
+
+
+async def resolve_principal(
+    *,
+    authorization: str | None,
+    x_business_id: str | None,
+) -> Principal:
+    """Authenticate from raw header values, for callers outside the dependency graph.
+
+    This is the same chain the HTTP API uses: token → user → membership → role. The MCP
+    servers use it so a tool call is held to exactly the API's tenant and role checks.
+    """
+    user = await resolve_user(authorization)
+    return await _principal_for_user(user, x_business_id)
+
+
+async def get_principal(
+    user: User = Depends(get_current_user),
+    x_business_id: str | None = Header(default=None, alias="X-Business-Id"),
+) -> Principal:
+    """Resolve the tenant for this request and the caller's role in it.
+
+    ``X-Business-Id`` may select a business the user belongs to (multi-tenant users).
+    If absent, the user's single membership is used. The role is always read from
+    ``business_memberships`` — never from the token, so a revoked role takes effect
+    immediately rather than at token expiry.
+    """
+    return await _principal_for_user(user, x_business_id)
 
 
 async def get_tenant_session(

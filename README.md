@@ -125,6 +125,20 @@ xenovarients-worker
 Sign in through `localhost`, not `127.0.0.1` — tokens live in `localStorage` and the
 origin must stay stable.
 
+## MCP servers
+
+The six read-only MCP servers are an optional extra: `pip install -e ".[mcp]"`. Without
+it the API is unchanged; with it, five of them are mounted inside the API process at
+`/mcp/<server>` — `customer_genome`, `restock`, `reviews`, `meta_ads`, `sourcing` — over
+Streamable HTTP, using the same `Authorization: Bearer …` and `X-Business-Id` headers
+as the API. The sixth runs over stdio and takes its tenant from the environment:
+
+```bash
+XENODESK_BUSINESS_ID=<business uuid> python -m xenovarients.platform.mcp.faq_server
+```
+
+Every tool is read-only: they preview, compute or report, and never write.
+
 ## Configuration
 
 All settings come from the environment (`backend/.env`, see

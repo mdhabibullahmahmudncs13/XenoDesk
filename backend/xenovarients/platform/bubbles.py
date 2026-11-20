@@ -243,11 +243,14 @@ async def list_bubbles(
     business_id: uuid.UUID,
     state: str | None = None,
     limit: int = 25,
+    returning_only: bool = False,
 ) -> list[CustomerBubble]:
     """The bubbles for one business, newest activity first."""
     conditions = [CustomerBubble.business_id == business_id]
     if state is not None:
         conditions.append(CustomerBubble.state == state)
+    if returning_only:
+        conditions.append(CustomerBubble.is_returning_customer.is_(True))
 
     result = await session.execute(
         select(CustomerBubble)

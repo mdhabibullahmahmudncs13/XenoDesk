@@ -30,7 +30,22 @@ def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.log_level)
 
+    # The MCP servers are an optional extra (``pip install -e ".[mcp]"``). Without it the
+    # product is unchanged: same routes, same health checks, no import of the SDK.
+    mcp_app = None
+    lifespan = None
+    try:
+        import mcp.server.mcpserver  # noqa: F401 - presence check for the optional extra
+    except ImportError:  # pragma: no cover - depends on the installed extras
+        pass
+    else:
+        from xenovarients.platform.mcp.app import create_mcp_app, mcp_lifespan
+
+        mcp_app = create_mcp_app()
+        lifespan = mcp_lifespan(mcp_app)
+
     app = FastAPI(
+        lifespan=lifespan,
         title="XenoDesk API",
         version="0.1.0",
         description=(
@@ -73,6 +88,10 @@ def create_app() -> FastAPI:
     app.include_router(review_permissions.router)
     app.include_router(sourcing.router)
     app.include_router(webhooks.router)
+
+    if mcp_app is not None:
+        # /mcp/<server> — read-only tools, authenticated by the same bearer token.
+        app.mount("/mcp", mcp_app)
 
     @app.get("/health", tags=["ops"])
     async def health() -> dict[str, str]:
